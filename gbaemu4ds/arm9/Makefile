@@ -20,27 +20,23 @@ TARGET		:=	$(shell basename $(CURDIR))
 BUILD		:=	build
 
 SOURCES		:=	source \
-				source/hbmenustub	\
-				../common	\
-                source/memory_handler_gba   \
-                source/adpcm  \
-                source/dswifi_arm9  \
-                source/cpu_misc \
-                source/httpstack    \
-                source/happyhttp    \
-                source/nifi \
-                source/disk_fs/ \
-                source/ipc/
- 
+				source/cpu_misc	\
+				source/disk_fs	\
+				source/dswifi_arm9	\
+				source/interrupts	\
+				source/ipc	\
+				source/libnds_extends	\
+				../common
+				
 INCLUDES	:=	include	\
-                source/adpcm  \
-				source/dswifi_arm9  \
-                source/cpu_misc \
-                source/httpstack    \
-                source/happyhttp    \
-                source/nifi \
-                source/disk_fs  \
-                source/ipc/
+                source \
+				source/cpu_misc	\
+				source/disk_fs	\
+				source/dswifi_arm9	\
+				source/interrupts	\
+				source/ipc	\
+				source/libnds_extends	\
+				../common
 
 DATA		:=	data  
 GRAPHICS	:=	gfx  

@@ -23,7 +23,7 @@
 
 ---------------------------------------------------------------------------------*/
 
-#include "ichflysettings.h"
+#include "../ichflysettings.h"
 
 
 @new stacks todo mix some stacks

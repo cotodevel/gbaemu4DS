@@ -1,5 +1,5 @@
 
-#include "ichflysettings.h"
+#include "../ichflysettings.h"
 
 
 
