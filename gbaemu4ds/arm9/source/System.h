@@ -90,7 +90,7 @@ typedef signed long long s64;
   //int emuCount;
 //};
 
-//extern void log(const char *,...);
+extern void log(const char *,...);
 
 extern bool systemPauseOnFrame();
 extern void systemGbPrint(u8 * a,int,int,int,int);

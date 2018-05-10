@@ -35,7 +35,7 @@
 
 #include <nds/interrupts.h>
 
-/*
+
 extern u32  objTilesAddress [3];
 
 extern bool cpuSramEnabled;
@@ -59,6 +59,22 @@ extern int timer3ClockReload;
 extern int cpuTotalTicks;
 
 void Logsd(const char *defaultMsg,...);
-*/
+
+
+#define UPDATE_REG(address, value)\
+  {\
+    WRITE16LE(((u16 *)&ioMem[address]),value);\
+  }\
+
+
+#define CPUReadByteQuick(addr) \
+  map[(addr)>>24].address[(addr) & map[(addr)>>24].mask]
+
+#define CPUReadHalfWordQuick(addr) \
+  READ16LE(((u16*)&map[(addr)>>24].address[(addr) & map[(addr)>>24].mask]))
+
+#define CPUReadMemoryQuick(addr) \
+  READ32LE(((u32*)&map[(addr)>>24].address[(addr) & map[(addr)>>24].mask]))
+
 
 #endif //VBA_GBAinline_H

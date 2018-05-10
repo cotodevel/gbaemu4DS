@@ -71,106 +71,6 @@ typedef union {
 #endif
 } reg_pair;
 
-#define R13_IRQ  18
-#define R14_IRQ  19
-#define SPSR_IRQ 20
-#define R13_USR  26
-#define R14_USR  27
-#define R13_SVC  28
-#define R14_SVC  29
-#define SPSR_SVC 30
-#define R13_ABT  31
-#define R14_ABT  32
-#define SPSR_ABT 33
-#define R13_UND  34
-#define R14_UND  35
-#define SPSR_UND 36
-#define R8_FIQ   37
-#define R9_FIQ   38
-#define R10_FIQ  39
-#define R11_FIQ  40
-#define R12_FIQ  41
-#define R13_FIQ  42
-#define R14_FIQ  43
-#define SPSR_FIQ 44
-
-#include "Cheats.h"
-#include "Globals.h"
-#include "EEprom.h"
-#include "Flash.h"
-
-#define UPDATE_REG(address, value)\
-{\
-	WRITE16LE(((u16 *)&ioMem[address]),value);\
-}
-
-#define CPUReadByteQuick(addr) \
-  map[(addr)>>24].address[(addr) & map[(addr)>>24].mask]
-
-#define CPUReadHalfWordQuick(addr) \
-  READ16LE(((u16*)&map[(addr)>>24].address[(addr) & map[(addr)>>24].mask]))
-
-#define CPUReadMemoryQuick(addr) \
-  READ32LE(((u32*)&map[(addr)>>24].address[(addr) & map[(addr)>>24].mask]))
-
-
-#define ARM_PREFETCH \
-  {\
-    cpuPrefetch[0] = CPUReadMemoryQuick(armNextPC);\
-    cpuPrefetch[1] = CPUReadMemoryQuick(armNextPC+4);\
-  }
-
-#define THUMB_PREFETCH \
-  {\
-    cpuPrefetch[0] = CPUReadHalfWordQuick(armNextPC);\
-    cpuPrefetch[1] = CPUReadHalfWordQuick(armNextPC+2);\
-  }
-
-#define ARM_PREFETCH_NEXT \
-  cpuPrefetch[1] = CPUReadMemoryQuick(armNextPC+4);
-
-#define THUMB_PREFETCH_NEXT\
-  cpuPrefetch[1] = CPUReadHalfWordQuick(armNextPC+2);
-
-#ifdef __GNUC__
-#define _stricmp strcasecmp
-#endif
-
-
-#endif //VBA_GBA_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-extern void emuInstrARM(u32 opcode, u32 *R);
-extern void emuInstrTHUMB(u16 opcode, u32 *R);
-
-extern void unknowndebugprint(reg_pair *myregs);
-extern void unkommeopcode(u32 opcode, reg_pair *myregs);
-
-extern void updateVCsub();
-extern void updateVC();
-
-extern u8  ichfly_readu8extern(unsigned int pos);
-extern u16 ichfly_readu16extern(unsigned int pos);
-extern u32 ichfly_readu32extern(unsigned int pos);
-
-extern void doDMAslow(u32 s, u32 d, u32 si, u32 di, u32 c, int transfer32);
-
-extern char disbuffer[0x2000];
-extern void debugDump();
-extern u32 myROM[];
-
-//ichfly i use VisualBoyAdvance instead of normal funktions because i know them
-extern FILE * pFile;
-extern u8 cpuBitsSet[256];
-extern int framenummer;
-
-extern int bg;
-extern int emulating;
-
-
 #ifndef NO_GBA_MAP
 extern memoryMap map[256];
 #endif
@@ -198,15 +98,15 @@ extern int  oldreg[17];
 extern char oldbuffer[10];
 //#endif
 
+//ichfly
+//extern "C" void ichfly_readfrom(FILE* fd, int pos,char *ptr, size_t len);
+
 #ifdef usebuffedVcout
 extern u8 VCountgbatods[0x100]; //(LY)      (0..227) + check overflow
 extern u8 VCountdstogba[263]; //(LY)      (0..262)
 extern u8 VCountdoit[263]; //jump in or out
 #endif
 
-
-
-//C++ declares
 extern bool CPUReadGSASnapshot(const char *);
 extern bool CPUWriteGSASnapshot(const char *, const char *, const char *, const char *);
 extern bool CPUWriteBatteryFile(const char *);
@@ -239,16 +139,100 @@ extern void cpuProfil(profile_segment *seg);
 extern void cpuEnableProfiling(int hz);
 #endif
 
-extern void cpu_SetCP15Cnt(u32 v);
-extern u32 cpu_GetCP15Cnt();
+//extern struct EmulatedSystem GBASystem;
 
-extern void VblankHandler();
-extern void frameasyncsync();
-extern void pausemenue();
+#define R13_IRQ  18
+#define R14_IRQ  19
+#define SPSR_IRQ 20
+#define R13_USR  26
+#define R14_USR  27
+#define R13_SVC  28
+#define R14_SVC  29
+#define SPSR_SVC 30
+#define R13_ABT  31
+#define R14_ABT  32
+#define SPSR_ABT 33
+#define R13_UND  34
+#define R14_UND  35
+#define SPSR_UND 36
+#define R8_FIQ   37
+#define R9_FIQ   38
+#define R10_FIQ  39
+#define R11_FIQ  40
+#define R12_FIQ  41
+#define R13_FIQ  42
+#define R14_FIQ  43
+#define SPSR_FIQ 44
 
-extern void BIOScall(int op,  u32 *R);
+#include "Cheats.h"
+#include "Globals.h"
+#include "EEprom.h"
+#include "Flash.h"
+
+
+#define UPDATE_REG(address, value)\
+  {\
+    WRITE16LE(((u16 *)&ioMem[address]),value);\
+  }\
+
+#define ARM_PREFETCH \
+  {\
+    cpuPrefetch[0] = CPUReadMemoryQuick(armNextPC);\
+    cpuPrefetch[1] = CPUReadMemoryQuick(armNextPC+4);\
+  }
+
+#define THUMB_PREFETCH \
+  {\
+    cpuPrefetch[0] = CPUReadHalfWordQuick(armNextPC);\
+    cpuPrefetch[1] = CPUReadHalfWordQuick(armNextPC+2);\
+  }
+
+#define ARM_PREFETCH_NEXT \
+  cpuPrefetch[1] = CPUReadMemoryQuick(armNextPC+4);
+
+#define THUMB_PREFETCH_NEXT\
+  cpuPrefetch[1] = CPUReadHalfWordQuick(armNextPC+2);
+
+#ifdef __GNUC__
+#define _stricmp strcasecmp
+#endif
+
+
+
+
+#endif //VBA_GBA_H
+
+#ifdef __cplusplus
+extern "C"{
+#endif
+
+extern void emuInstrARM(u32 opcode, s32 *R);
+extern void emuInstrTHUMB(u16 opcode, s32 *R);
+
+extern void unkommeopcode(u32 opcode, reg_pair *myregs);
+extern void unknowndebugprint(reg_pair *myregs);
+
+extern inline void updateVCsub();
+extern inline void updateVC();
+
+extern u8  ichfly_readu8extern(unsigned int pos);
+extern u16 ichfly_readu16extern(unsigned int pos);
+extern u32 ichfly_readu32extern(unsigned int pos);
+
+extern void doDMAslow(u32 s, u32 d, u32 si, u32 di, u32 c, int transfer32);
+
+extern char disbuffer[0x2000];
+extern void debugDump();
+extern u32 myROM[];
+
+//ichfly i use VisualBoyAdvance instead of normal funktions because i know them
+extern FILE * pFile;
+extern u8 cpuBitsSet[256];
+extern int framenummer;
+
+extern int bg;
+extern int emulating;
 
 #ifdef __cplusplus
 }
 #endif
-

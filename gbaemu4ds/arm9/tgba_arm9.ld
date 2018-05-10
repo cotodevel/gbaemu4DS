@@ -5,9 +5,9 @@ ENTRY(_start)
 MEMORY {
 
        rom     : ORIGIN = 0x08000000, LENGTH = 32M
-       gbarom  : ORIGIN = 0x02180000, LENGTH = 2M + 768k
+       gbarom  : ORIGIN = 0x02180000, LENGTH = 3M -512k
        gbaew   : ORIGIN = 0x02000000, LENGTH = 256k
-       ewram   : ORIGIN = 0x02100000, LENGTH = 1M
+       ewram   : ORIGIN = 0x02040000, LENGTH = 1M - 256k + 512k
        dtcm    : ORIGIN = 0x027C0000, LENGTH = 16K
        vectors : ORIGIN = 0x01FF8000, LENGTH = 1K - 256
        itcm    : ORIGIN = 0x01FF8300, LENGTH = 32K - 1K + 256
@@ -16,9 +16,6 @@ MEMORY {
 
 __vectors_start	=	ORIGIN(vectors);
 __itcm_start	=	ORIGIN(itcm);
-__itcm_end	=	ORIGIN(itcm) + LENGTH(itcm);
-
-__ewram_start	=	ORIGIN(ewram);
 __ewram_end	=	ORIGIN(ewram) + LENGTH(ewram);
 __eheap_end	=	ORIGIN(ewram) + LENGTH(ewram);
 __dtcm_start	=	ORIGIN(dtcm);
@@ -26,12 +23,9 @@ __dtcm_top	=	ORIGIN(dtcm) + LENGTH(dtcm);
 __irq_flags	=	__dtcm_top - 0x08;
 __irq_vector	=	__dtcm_top - 0x04;
 
-__sp_undef	=	__dtcm_top - 0x200 	- 0xc;  
-__sp_dabt	=	__sp_undef - 0x1000;
-__sp_svc	=	__sp_dabt - 0x400;	
-__sp_swi	=	__sp_svc - 0x400;	
-__sp_irq	=	__sp_swi - 0x1000; 	
-__sp_usr	=	__sp_irq - 0x100;
+__sp_svc	=	__dtcm_top - 0x100;
+__sp_irq	=	__sp_svc - 0x100;
+__sp_usr	=	__sp_irq - 0x800;
 
 SECTIONS
 {

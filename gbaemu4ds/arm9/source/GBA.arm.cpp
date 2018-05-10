@@ -1,3 +1,5 @@
+
+
 // VisualBoyAdvance - Nintendo Gameboy/GameboyAdvance (TM) emulator.
 // Copyright (C) 1999-2003 Forgotten
 // Copyright (C) 2005-2006 Forgotten and the VBA development team
@@ -16,6 +18,20 @@
 // along with this program; if not, write to the Free Software Foundation,
 // Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+
+#include "GBA.h"
+#include "Sound.h"
+#include "Util.h"
+#include "getopt.h"
+#include "System.h"
+#include "ichflysettings.h"
+
+#ifndef loadindirect
+#include "puzzleorginal_bin.h"
+#endif
+
+bool ichflytest = false;
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <nds/memory.h>//#include <memory.h> ichfly
@@ -32,18 +48,6 @@
 #include <string.h>
 
 #include "GBA.h"
-#include "Sound.h"
-#include "Util.h"
-#include "getopt.h"
-#include "System.h"
-#include "ichflysettings.h"
-
-#ifndef loadindirect
-#include "puzzleorginal_bin.h"
-#endif
-
-bool ichflytest = false;
-
 #include "GBAinline.h"
 #include "Globals.h"
 //#include "Gfx.h" //ichfly not that
@@ -55,6 +59,7 @@ bool ichflytest = false;
 #include "Cheats.h"
 #include "NLS.h"
 #include "elf.h"
+#include "Util.h"
 #include "Port.h"
 #ifdef PROFILING
 #include "prof/prof.h"
@@ -793,7 +798,7 @@ void  doDMAslow(u32 s, u32 d, u32 si, u32 di, u32 c, int transfer32) //ichfly ve
 }
 
 __attribute__((section(".itcm")))
-void  doDMA(u32 s, u32 d, u32 si, u32 di, u32 c, int transfer32) //ichfly veraltet
+void  doDMA(u32 &s, u32 &d, u32 si, u32 di, u32 c, int transfer32) //ichfly veraltet
 {
 	if(si == 0 || di == 0 || s < 0x02000000 || d < 0x02000000 || (d & ~0xFFFFFF) == 0x04000000 || (s & ~0xFFFFFF) == 0x04000000 || s >= 0x0D000000 || d >= 0x0D000000)
 	{
@@ -1144,15 +1149,13 @@ void  __attribute__ ((hot)) CPUUpdateRegister(u32 address, u16 value)
 
   switch(address) {
   case 0x00:
-    {	
-		if(value != DISPCNT)
+    {		
+		if((value & 7) < 3)
 		{
-			
-			switch(value & 0x7){
-			
-				//In this mode, four text background layers can be shown. In this mode backgrounds 0 - 3 all count as "text" backgrounds, and cannot be scaled or rotated. 
-				//Check out the section on text backgrounds for details on this. 
-				case(0):case(2):{
+			if(value != DISPCNT)
+			{
+				if(!((DISPCNT & 7) < 3))
+				{
 					//reset BG3HOFS and BG3VOFS
 					REG_BG3HOFS = BG3HOFS;
 					REG_BG3VOFS = BG3VOFS;
@@ -1177,133 +1180,77 @@ void  __attribute__ ((hot)) CPUUpdateRegister(u32 address, u16 value)
 					REG_BG3PD = BG3PD;
 					REG_BG3X = (BG3X_L | (BG3X_H << 16));
 					REG_BG3Y = (BG3Y_L | (BG3Y_H << 16));
-					
-					u32 dsValue;
-					dsValue  = value & 0xFF87;
-					dsValue |= (value & (1 << 5)) ? (1 << 23) : 0;	/* oam hblank access */
-					dsValue |= (value & (1 << 6)) ? (1 << 4) : 0;	/* obj mapping 1d/2d */
-	#ifndef capture_and_pars
-					dsValue |= (value & (1 << 7)) ? 0 : (1 << 16);	/* forced blank => no display mode (both)*/
-	#endif
-					REG_DISPCNT = dsValue; 				
-					//mode 0 does not use rotscale registers
 				}
-				break;
-				
-				//coto: mode 1
-				case(1):{
-					//This mode is similar in most respects to Mode 0, the main difference being that only 3 backgrounds are accessible -- 0, 1, and 2. 
-					//Bgs 0 and 1 are text backgrounds, while bg 2 is a rotation/scaling background.
-					
-					//rotscale/affine
-					/*
-					REG_BG2PA = BG2PA;
-					REG_BG2PB = BG2PB;
-					REG_BG2PC = BG2PC;
-					REG_BG2PD = BG2PD;
-					
-					REG_BG2X = (BG2X_L | (BG2X_H << 16));
-					REG_BG2Y = (BG2Y_L | (BG2Y_H << 16));
-					*/
-					//NDS PPU mode
-							//bg0   //bg1     //bg2    //bg3
-					//1     Text/3D  Text     Text     Affine
-					
-					//gba mode
-					//2     Yes      --23   128x128..1024x1024 256   256/1        S-MABP
-					
-					/* //works but char tiles appear
-					u32 dsValue = (value & 0xFF87) | (1<<11);           // //Set BG(x) enabled + NDS PPU like GBA PPU + enable BG3
-					dsValue |= (value & (1 << 5)) ? (1 << 23) : 0;	// oam hblank access 
-					dsValue |= (value & (1 << 6)) ? (1 << 4) : 0;	    // obj mapping 1d/2d
-					dsValue |= (value & (1 << 7)) ? 0 : (1 << 16);	// forced blank => no display mode (both)
-					
-					//dsValue |= DISPLAY_CHAR_BASE(1);                    //set purposely engine's tilebase to 0x06020000 , unused memory so it doesnt override the actual tiles copied over dma
-					REG_DISPCNT = dsValue; 
-					
-					int charbase = (BG2CNT>>2)&0x3;
-					int mapbase = (BG2CNT>>8)&0x1f;
-					
-					REG_BG3CNT = (BG2CNT&0x3) | (charbase<<2) | (mapbase<<8) | (((BG2CNT>>14)&0x3)<<14);
-					*/
-					
-					int charbase = (BG2CNT>>2)&0x3;
-					int mapbase = (BG2CNT>>8)&0x1f;
-					
-					REG_BG3CNT = (BG2CNT&0x3) | (charbase<<2) | (mapbase<<8) | (((BG2CNT>>14)&0x3)<<14);
-					
-					u32 dsValue = (value & 0xFF80) | (1<<11) | MODE_1_2D;           // //Set BG(x) enabled + NDS PPU like GBA PPU + enable BG3
-					dsValue |= (value & (1 << 5)) ? (1 << 23) : 0;	// oam hblank access 
-					dsValue |= (value & (1 << 6)) ? (1 << 4) : 0;	    // obj mapping 1d/2d
-					dsValue |= (value & (1 << 7)) ? 0 : (1 << 16);	// forced blank => no display mode (both)
-					
-					REG_DISPCNT = dsValue; 
-				}
-				break;
-				
-				case(3):case(4):case(5):{
-					//mode 3,4,5
-					if((value & 0xFFEF) != (DISPCNT & 0xFFEF))
-					{
 
-						u32 dsValue;
-						dsValue  = value & 0xF087;
-						dsValue |= (value & (1 << 5)) ? (1 << 23) : 0;	/* oam hblank access */
-						dsValue |= (value & (1 << 6)) ? (1 << 4) : 0;	/* obj mapping 1d/2d */
-		#ifndef capture_and_pars
-						dsValue |= (value & (1 << 7)) ? 0 : (1 << 16);	/* forced blank => no display mode (both)*/
-		#endif
-						REG_DISPCNT = (dsValue | BIT(11)); //enable BG3
-						if((DISPCNT & 7) != (value & 7))
-						{
-							if((value & 7) == 4)
-							{
-								//bgInit_call(3, BgType_Bmp8, BgSize_B8_256x256,8,8);
-								REG_BG3CNT = BG_MAP_BASE(/*mapBase*/8) | BG_TILE_BASE(/*tileBase*/8) | BgSize_B8_256x256;
-							}
-							else 
-							{
-								//bgInit_call(3, BgType_Bmp16, BgSize_B16_256x256,8,8);
-								REG_BG3CNT = BG_MAP_BASE(/*mapBase*/8) | BG_TILE_BASE(/*tileBase*/8) | BgSize_B16_256x256;
-							}
-							if((DISPCNT & 7) < 3)
-							{
-								//reset BG3HOFS and BG3VOFS
-								REG_BG3HOFS = 0;
-								REG_BG3VOFS = 0;
-
-								//BLDCNT(2 enabeled bits)
-								int tempBLDMOD = BLDMOD & ~0x404;
-								tempBLDMOD = tempBLDMOD | ((BLDMOD & 0x404) << 1);
-								REG_BLDCNT = tempBLDMOD;
-
-								//WINOUT(2 enabeled bits)
-								int tempWINOUT = WINOUT & ~0x404;
-								tempWINOUT = tempWINOUT | ((WINOUT & 0x404) << 1);
-								WIN_OUT = tempWINOUT;
-
-								//WININ(2 enabeled bits)
-								int tempWININ = WININ & ~0x404;
-								tempWININ = tempWININ | ((WININ & 0x404) << 1);
-								WIN_IN = tempWININ;
-
-								//swap LCD I/O BG Rotation/Scaling
-
-								REG_BG3PA = BG2PA;
-								REG_BG3PB = BG2PB;
-								REG_BG3PC = BG2PC;
-								REG_BG3PD = BG2PD;
-								REG_BG3X = (BG2X_L | (BG2X_H << 16));
-								REG_BG3Y = (BG2Y_L | (BG2Y_H << 16));
-								REG_BG3CNT = REG_BG3CNT | (BG2CNT & 0x43); //swap BG2CNT (BG Priority and Mosaic) 
-							}
-						}
-					}
-				}
-				break;
+				u32 dsValue;
+				dsValue  = value & 0xFF87;
+				dsValue |= (value & (1 << 5)) ? (1 << 23) : 0;	/* oam hblank access */
+				dsValue |= (value & (1 << 6)) ? (1 << 4) : 0;	/* obj mapping 1d/2d */
+#ifndef capture_and_pars
+				dsValue |= (value & (1 << 7)) ? 0 : (1 << 16);	/* forced blank => no display mode (both)*/
+#endif
+				REG_DISPCNT = dsValue; 
 			}
 		}
-		
+		else
+		{
+			if((value & 0xFFEF) != (DISPCNT & 0xFFEF))
+			{
+
+				u32 dsValue;
+				dsValue  = value & 0xF087;
+				dsValue |= (value & (1 << 5)) ? (1 << 23) : 0;	/* oam hblank access */
+				dsValue |= (value & (1 << 6)) ? (1 << 4) : 0;	/* obj mapping 1d/2d */
+#ifndef capture_and_pars
+				dsValue |= (value & (1 << 7)) ? 0 : (1 << 16);	/* forced blank => no display mode (both)*/
+#endif
+				REG_DISPCNT = (dsValue | BIT(11)); //enable BG3
+				if((DISPCNT & 7) != (value & 7))
+				{
+					if((value & 7) == 4)
+					{
+						//bgInit_call(3, BgType_Bmp8, BgSize_B8_256x256,8,8);
+						REG_BG3CNT = BG_MAP_BASE(/*mapBase*/8) | BG_TILE_BASE(/*tileBase*/8) | BgSize_B8_256x256;
+					}
+					else 
+					{
+						//bgInit_call(3, BgType_Bmp16, BgSize_B16_256x256,8,8);
+						REG_BG3CNT = BG_MAP_BASE(/*mapBase*/8) | BG_TILE_BASE(/*tileBase*/8) | BgSize_B16_256x256;
+					}
+					if((DISPCNT & 7) < 3)
+					{
+						//reset BG3HOFS and BG3VOFS
+						REG_BG3HOFS = 0;
+						REG_BG3VOFS = 0;
+
+						//BLDCNT(2 enabeled bits)
+						int tempBLDMOD = BLDMOD & ~0x404;
+						tempBLDMOD = tempBLDMOD | ((BLDMOD & 0x404) << 1);
+						REG_BLDCNT = tempBLDMOD;
+
+						//WINOUT(2 enabeled bits)
+						int tempWINOUT = WINOUT & ~0x404;
+						tempWINOUT = tempWINOUT | ((WINOUT & 0x404) << 1);
+						WIN_OUT = tempWINOUT;
+
+						//WININ(2 enabeled bits)
+						int tempWININ = WININ & ~0x404;
+						tempWININ = tempWININ | ((WININ & 0x404) << 1);
+						WIN_IN = tempWININ;
+
+						//swap LCD I/O BG Rotation/Scaling
+
+						REG_BG3PA = BG2PA;
+						REG_BG3PB = BG2PB;
+						REG_BG3PC = BG2PC;
+						REG_BG3PD = BG2PD;
+						REG_BG3X = (BG2X_L | (BG2X_H << 16));
+						REG_BG3Y = (BG2Y_L | (BG2Y_H << 16));
+						REG_BG3CNT = REG_BG3CNT | (BG2CNT & 0x43); //swap BG2CNT (BG Priority and Mosaic) 
+					}
+				}
+			}
+		}
 		DISPCNT = value & 0xFFF7;
 		UPDATE_REG(0x00, DISPCNT);
     }
@@ -1317,8 +1264,9 @@ void  __attribute__ ((hot)) CPUUpdateRegister(u32 address, u16 value)
 	u16 tempDISPSTAT = (u16)((DISPSTAT&0xFF) | ((VCountgbatods[DISPSTAT>>8]) << 8));
 #else
 	//8-15  V-Count Setting (LYC)      (0..227)
+
 	{
-	u16 tempDISPSTAT = DISPSTAT >> 8;
+		tempDISPSTAT = DISPSTAT >> 8;
 		//float help = tempDISPSTAT;
 		if(tempDISPSTAT < 160)
 		{
@@ -1339,7 +1287,6 @@ void  __attribute__ ((hot)) CPUUpdateRegister(u32 address, u16 value)
 			}
 			else tempDISPSTAT = (DISPSTAT & 0x1F);		
 		}
-		
 #endif
 #ifdef forceHBlankirqs
 	*(u16 *)(0x4000004) = tempDISPSTAT | BIT(4);
@@ -1347,8 +1294,8 @@ void  __attribute__ ((hot)) CPUUpdateRegister(u32 address, u16 value)
 	*(u16 *)(0x4000004) = tempDISPSTAT;
 #endif
 	}
-	
-	
+
+
     break;
   case 0x06:
     // not writable in NDS mode bzw not possible todo
@@ -1366,59 +1313,17 @@ void  __attribute__ ((hot)) CPUUpdateRegister(u32 address, u16 value)
   case 0x0C:
     BG2CNT = (value & 0xFFCF);
     UPDATE_REG(0x0C, BG2CNT);
-	
-	//ichfly
-    /*
-    if((DISPCNT & 7) < 3){
-        
-        *(u16 *)(0x400000C) = BG2CNT;
-    }
-    else //ichfly some extra handling 
+	if((DISPCNT & 7) < 3)*(u16 *)(0x400000C) = BG2CNT;
+	else //ichfly some extra handling 
 	{
 		REG_BG3CNT = REG_BG3CNT | (BG2CNT & 0x43);
 	}
-    */
-    
-    //coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x400000C) = BG2CNT;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x400000C) = 3;        //NDS BG2 is hidden since
-            *(u16 *)(0x400000E) = BG2CNT;   //we treat BG3 as BG2
-        }
-        break;
-        
-        case(3):case(4):case(5):{
-            REG_BG3CNT = REG_BG3CNT | (BG2CNT & 0x43);
-        }
-        break;
-        
-    }
     break;
   case 0x0E:
     BG3CNT = (value & 0xFFCF);
     UPDATE_REG(0x0E, BG3CNT);
-	
-	//if((DISPCNT & 7) < 3)*(u16 *)(0x400000E) = BG3CNT;
-    
-    //coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x400000E) = BG3CNT;
-        }
-        break;
-        
-        case(1):{
-			//unused
-        }
-        break;
-    }
-	
-	break;
+	if((DISPCNT & 7) < 3)*(u16 *)(0x400000E) = BG3CNT;
+    break;
   case 0x10:
     BG0HOFS = value & 511;
     UPDATE_REG(0x10, BG0HOFS);
@@ -1442,415 +1347,118 @@ void  __attribute__ ((hot)) CPUUpdateRegister(u32 address, u16 value)
   case 0x18:
     BG2HOFS = value & 511;
     UPDATE_REG(0x18, BG2HOFS);
-	
-	//*(u16 *)(0x4000018) = value;
-    
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):case(3):case(4):case(5):{
-            *(u16 *)(0x4000018) = value;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x4000018) = 0;
-           *(u16 *)(0x400001C) = value; //bg3 nds hw map
-        }
-        break;
-    }
-	
-	break;
+	*(u16 *)(0x4000018) = value;
+    break;
   case 0x1A:
     BG2VOFS = value & 511;
     UPDATE_REG(0x1A, BG2VOFS);
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x400001A) = value; //ichfly only update if it is save
-	
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x400001A) = value;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x400001A) = 0;
-           *(u16 *)(0x400001E) = value; //bg3 nds hw map
-        }
-        break;
-    }
-	
+    if((DISPCNT & 7) < 3)*(u16 *)(0x400001A) = value; //ichfly only update if it is save
 	break;
   case 0x1C:
     BG3HOFS = value & 511;
     UPDATE_REG(0x1C, BG3HOFS);
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x400001C) = value; //ichfly only update if it is save
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x400001C) = value;
-        }
-        break;
-        
-        case(1):{
-           //unused
-        }
-        break;
-    }
-	
+    if((DISPCNT & 7) < 3)*(u16 *)(0x400001C) = value; //ichfly only update if it is save
 	break;
   case 0x1E:
     BG3VOFS = value & 511;
     UPDATE_REG(0x1E, BG3VOFS);
-    //*(u16 *)(0x400001E) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):case(3):case(4):case(5):{
-            *(u16 *)(0x400001E) = value;
-        }
-        break;
-        
-        case(1):{
-           //unused
-        }
-        break;
-    }
+    *(u16 *)(0x400001E) = value;
 	break;      
   case 0x20:
     BG2PA = value;
     UPDATE_REG(0x20, BG2PA);
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x4000020) = value;
-	//else *(u16 *)(0x4000030) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x4000020) = value;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x4000020) = 0;
-           *(u16 *)(0x4000030) = value;
-        }
-        break;
-        case(3):case(4):case(5):{
-            *(u16 *)(0x4000030) = value;
-        }
-        break;
-    }
+    if((DISPCNT & 7) < 3)*(u16 *)(0x4000020) = value;
+	else *(u16 *)(0x4000030) = value;
 	break;
   case 0x22:
     BG2PB = value;
     UPDATE_REG(0x22, BG2PB);
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x4000022) = value;
-	//else *(u16 *)(0x4000032) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x4000022) = value;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x4000022) = 0;
-           *(u16 *)(0x4000032) = value;
-        }
-        break;
-        case(3):case(4):case(5):{
-            *(u16 *)(0x4000032) = value;
-        }
-        break;
-    }
+    if((DISPCNT & 7) < 3)*(u16 *)(0x4000022) = value;
+	else *(u16 *)(0x4000032) = value;
 	break;
   case 0x24:
     BG2PC = value;
     UPDATE_REG(0x24, BG2PC);
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x4000024) = value;
-	//else *(u16 *)(0x4000034) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x4000024) = value;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x4000024) = 0;
-           *(u16 *)(0x4000034) = value;
-        }
-        break;
-        case(3):case(4):case(5):{
-            *(u16 *)(0x4000034) = value;
-        }
-        break;
-    }
+    if((DISPCNT & 7) < 3)*(u16 *)(0x4000024) = value;
+	else *(u16 *)(0x4000034) = value;
 	break;
   case 0x26:
     BG2PD = value;
     UPDATE_REG(0x26, BG2PD);
-	//if((DISPCNT & 7) < 3)*(u16 *)(0x4000026) = value;
-	//else *(u16 *)(0x4000036) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x4000026) = value;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x4000026) = 0;
-           *(u16 *)(0x4000036) = value;
-        }
-        break;
-        case(3):case(4):case(5):{
-            *(u16 *)(0x4000036) = value;
-        }
-        break;
-    }
+	if((DISPCNT & 7) < 3)*(u16 *)(0x4000026) = value;
+	else *(u16 *)(0x4000036) = value;
 	break;
   case 0x28:
     BG2X_L = value;
     UPDATE_REG(0x28, BG2X_L);
     //gfxBG2Changed |= 1;
-	//if((DISPCNT & 7) < 3)*(u16 *)(0x4000028) = value;
-	//else *(u16 *)(0x4000038) = value;
-    
-	//4000020h - BG2PA - BG2 Rotation/Scaling Parameter A (alias dx) (W)
-    //4000022h - BG2PB - BG2 Rotation/Scaling Parameter B (alias dmx) (W)
-    //4000024h - BG2PC - BG2 Rotation/Scaling Parameter C (alias dy) (W)
-    //4000026h - BG2PD - BG2 Rotation/Scaling Parameter D (alias dmy) (W)
-
-    //4000028h - BG2X_L - BG2 Reference Point X-Coordinate, lower 16 bit (W)
-    //400002Ah - BG2X_H - BG2 Reference Point X-Coordinate, upper 12 bit (W)
-    //400002Ch - BG2Y_L - BG2 Reference Point Y-Coordinate, lower 16 bit (W)
-    //400002Eh - BG2Y_H - BG2 Reference Point Y-Coordinate, upper 12 bit (W)
-    
-    //coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x4000028) = value;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x4000028) = 0;
-            *(u16 *)(0x4000038) = value;    //engine 3
-        }
-        break;
-        case(3):case(4):case(5):{
-            *(u16 *)(0x4000038) = value;
-        }
-        break;
-    }
-	break;
+	if((DISPCNT & 7) < 3)*(u16 *)(0x4000028) = value;
+	else *(u16 *)(0x4000038) = value;
+    break;
   case 0x2A:
     BG2X_H = (value & 0xFFF);
     UPDATE_REG(0x2A, BG2X_H);
     //gfxBG2Changed |= 1;
-	//if((DISPCNT & 7) < 3)*(u16 *)(0x400002A) = value;
-	//else *(u16 *)(0x400003A) = value;
-    
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x400002A) = value;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x400002A) = 0;
-            *(u16 *)(0x400003A) = value;    //engine 3
-            
-        }
-        break;
-        case(3):case(4):case(5):{
-            *(u16 *)(0x400003A) = value;
-        }
-        break;
-    }
-	break;
+	if((DISPCNT & 7) < 3)*(u16 *)(0x400002A) = value;
+	else *(u16 *)(0x400003A) = value;
+    break;
   case 0x2C:
     BG2Y_L = value;
     UPDATE_REG(0x2C, BG2Y_L);
     //gfxBG2Changed |= 2;
-	//if((DISPCNT & 7) < 3)*(u16 *)(0x400002C) = value;
-	//else *(u16 *)(0x400003C) = value;
-    
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x400002C) = value;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x400002C) = 0;
-            *(u16 *)(0x400003C) = value;    //engine 3
-        }
-        break;
-        case(3):case(4):case(5):{
-            *(u16 *)(0x400003C) = value;
-        }
-        break;
-    }
-	break;
+	if((DISPCNT & 7) < 3)*(u16 *)(0x400002C) = value;
+	else *(u16 *)(0x400003C) = value;
+    break;
   case 0x2E:
     BG2Y_H = value & 0xFFF;
     UPDATE_REG(0x2E, BG2Y_H);
     //gfxBG2Changed |= 2;
-	//if((DISPCNT & 7) < 3)*(u16 *)(0x400002E) = value;
-	//else *(u16 *)(0x400003E) = value;
-    
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x400002E) = value;
-        }
-        break;
-        
-        case(1):{
-            *(u16 *)(0x400002E) = 0;
-            *(u16 *)(0x400003E) = value;    //engine 3
-        }
-        break;
-        case(3):case(4):case(5):{
-            *(u16 *)(0x400003E) = value;
-        }
-        break;
-    }
-	break;
+	if((DISPCNT & 7) < 3)*(u16 *)(0x400002E) = value;
+	else *(u16 *)(0x400003E) = value;
+    break;
   case 0x30:
     BG3PA = value;
     UPDATE_REG(0x30, BG3PA);
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x4000030) = value;
-	
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x4000030) = value;
-        }
-        break;
-        
-        case(1):{
-            //engine 3 in mode 1 writes are disabled
-        }
-    }
-	
+    if((DISPCNT & 7) < 3)*(u16 *)(0x4000030) = value;
 	break;
   case 0x32:
     BG3PB = value;
     UPDATE_REG(0x32, BG3PB);
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x4000032) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x4000032) = value;
-        }
-        break;
-        
-        case(1):{
-            //engine 3 in mode 1 writes are disabled
-        }
-    }
+    if((DISPCNT & 7) < 3)*(u16 *)(0x4000032) = value;
 	break;
   case 0x34:
     BG3PC = value;
     UPDATE_REG(0x34, BG3PC);
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x4000034) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x4000034) = value;
-        }
-        break;
-        
-        case(1):{
-            //engine 3 in mode 1 writes are disabled
-        }
-    }
+    if((DISPCNT & 7) < 3)*(u16 *)(0x4000034) = value;
 	break;
   case 0x36:
     BG3PD = value;
     UPDATE_REG(0x36, BG3PD);
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x4000036) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x4000036) = value;
-        }
-        break;
-        
-        case(1):{
-            //engine 3 in mode 1 writes are disabled
-        }
-    }
+    if((DISPCNT & 7) < 3)*(u16 *)(0x4000036) = value;
 	break;
   case 0x38:
     BG3X_L = value;
     UPDATE_REG(0x38, BG3X_L);
     //gfxBG3Changed |= 1;
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x4000038) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x4000038) = value;
-        }
-        break;
-        
-        case(1):{
-            //engine 3 in mode 1 writes are disabled
-        }
-    }
+    if((DISPCNT & 7) < 3)*(u16 *)(0x4000038) = value;
 	break;
   case 0x3A:
     BG3X_H = value & 0xFFF;
     UPDATE_REG(0x3A, BG3X_H);
     //gfxBG3Changed |= 1;    
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x400003A) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x400003A) = value;
-        }
-        break;
-        
-        case(1):{
-            //engine 3 in mode 1 writes are disabled
-        }
-    }
+    if((DISPCNT & 7) < 3)*(u16 *)(0x400003A) = value;
 	break;
   case 0x3C:
     BG3Y_L = value;
     UPDATE_REG(0x3C, BG3Y_L);
     //gfxBG3Changed |= 2;    
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x400003C) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x400003C) = value;
-        }
-        break;
-        
-        case(1):{
-            //engine 3 in mode 1 writes are disabled
-        }
-    }
+    if((DISPCNT & 7) < 3)*(u16 *)(0x400003C) = value;
 	break;
   case 0x3E:
     BG3Y_H = value & 0xFFF;
     UPDATE_REG(0x3E, BG3Y_H);
     //gfxBG3Changed |= 2;    
-    //if((DISPCNT & 7) < 3)*(u16 *)(0x400003E) = value;
-	//coto
-    switch(REG_DISPCNT & 7){
-        case(0):case(2):{
-            *(u16 *)(0x400003E) = value;
-        }
-        break;
-        
-        case(1):{
-            //engine 3 in mode 1 writes are disabled
-        }
-    }
+    if((DISPCNT & 7) < 3)*(u16 *)(0x400003E) = value;
 	break;
   case 0x40:
     WIN0H = value;
@@ -2252,8 +1860,8 @@ void  __attribute__ ((hot)) CPUUpdateRegister(u32 address, u16 value)
 	}
 	else*/
 	{	
-		//*(u16 *)(0x4000100) = timer1Reload << 1;
-		//*(u16 *)(0x4000102) = value;
+		*(u16 *)(0x4000100) = timer1Reload << 1;
+		*(u16 *)(0x4000102) = value;
 	}
     break;
   case 0x104:
@@ -2307,8 +1915,8 @@ void  __attribute__ ((hot)) CPUUpdateRegister(u32 address, u16 value)
 	}
 	else*/
 	{	
-		//*(u16 *)(0x4000104) = timer1Reload << 1;
-		//*(u16 *)(0x4000106) = value;
+		*(u16 *)(0x4000104) = timer1Reload << 1;
+		*(u16 *)(0x4000106) = value;
 	}
 	  break;
   case 0x108:
@@ -2347,8 +1955,8 @@ void  __attribute__ ((hot)) CPUUpdateRegister(u32 address, u16 value)
 	}
 	else*/
 	{	
-		//*(u16 *)(0x4000108) = timer2Reload << 1;
-		//*(u16 *)(0x400010A) = value;
+		*(u16 *)(0x4000108) = timer2Reload << 1;
+		*(u16 *)(0x400010A) = value;
 	}
 	  break;
   case 0x10C:
@@ -2912,7 +2520,6 @@ void CPUReset()
   //lastTime = systemGetClock();
 
   //SWITicks = 0;
-  rtcEnable(true); //coto: nds7 clock 
 }
 
 #ifdef SDL
@@ -2982,6 +2589,8 @@ void winLog(char const*, ...)
 	return; //todo ichfly
 }
 */
+
+
 
 
 
@@ -3548,13 +3157,6 @@ u32 CPUReadMemoryreal(u32 address) //ichfly not inline is faster because it is s
 	{
 		updateVC();
 	}
-	
-	
-	if(address==0x04000006){
-		value = VCOUNT;
-		break;
-	}
-	
     if((address < 0x4000400) && ioReadable[address & 0x3fc]) {
       if(ioReadable[(address & 0x3fc) + 2])
         value = READ32LE(((u32 *)&ioMem[address & 0x3fC]));
@@ -3744,11 +3346,6 @@ u32 CPUReadHalfWordreal(u32 address) //ichfly not inline is faster because it is
 		updateVC();
 	}
 	
-	if(address==0x04000006){
-		value = VCOUNT;
-		break;
-	}
-	
 #ifdef gba_handel_IRQ_correct
 	if(address == 0x4000202)//ichfly update
 	{
@@ -3922,12 +3519,6 @@ iprintf("r8 %02x\n",address);
 	{
 		updateVC();
 	}
-	
-	if(address==0x04000006){
-		return (u8)VCOUNT;
-		break;
-	}
-	
 #ifdef gba_handel_IRQ_correct
 	if(address == 0x4000202 || address == 0x4000203)//ichfly update
 	{
@@ -4125,13 +3716,7 @@ u32 CPUReadMemoryrealpu(u32 address)
 	{
 		updateVCsub();
 	}
-    
-	if(address==0x04000006){
-		value = VCOUNT;
-		break;
-	}
-	
-	if((address < 0x4000400) && ioReadable[address & 0x3fc]) {
+    if((address < 0x4000400) && ioReadable[address & 0x3fc]) {
       if(ioReadable[(address & 0x3fc) + 2])
         value = READ32LE(((u32 *)&ioMem[address & 0x3fC]));
       else
@@ -4234,155 +3819,6 @@ u32 CPUReadMemoryrealpu(u32 address)
 }
 
 
-__attribute__((section(".itcm")))
-u16 CPUReadHalfWordrealpuSigned(u32 address)
-{
-  u16 value = CPUReadHalfWordrealpu(address);
-  if((address & 1))
-    value = (s8)value;
-  return value;
-}
-
-
-__attribute__((section(".itcm")))
-u32 CPUReadHalfWordrealpu(u32 address) //ichfly not inline is faster because it is smaler
-{
-#ifdef printreads
-	iprintf("r16 %08x (%08X)\n",address,cpu_GetMemPrem());
-#endif
-#ifdef DEV_VERSION      
-  if(address & 1) {
-    if(systemVerbose & VERBOSE_UNALIGNED_MEMORY) {
-      Log("Unaligned halfword read: %08x at %08x\n", address, armMode ?
-          armNextPC - 4 : armNextPC - 2);
-    }
-  }
-#endif
-  
-  u32 value;
-  
-  switch(address >> 24) {
-  case 4:
-  
-	if(address > 0x40000FF && address < 0x4000111)
-	{
-		
-		if((address&0x2) == 0)
-		{
-			if(ioMem[address & 0x3fe] & 0x8000)
-			{
-				value = ((*(u16 *)(address)) >> 1) | 0x8000;
-			}
-			else
-			{
-				value = (*(u16 *)(address)) >> 1;
-			}
-			return value;
-		}
-	}
-  
-	if(address > 0x4000003 && address < 0x4000008)//ichfly update
-	{
-		updateVCsub();
-	}
-	
-	if(address==0x04000006){
-		value = VCOUNT;
-		break;
-	}
-	
-#ifdef gba_handel_IRQ_correct
-	if(address == 0x4000202)//ichfly update
-	{
-		IF = *(vuint16*)0x04000214;
-		UPDATE_REG(0x202, IF);
-	}
-#endif
-	
-    if((address < 0x4000400) && ioReadable[address & 0x3fe])
-    {
-		value =  READ16LE(((u16 *)&ioMem[address & 0x3fe]));
-    }
-    else goto unreadable;
-    break;
-  case 8:
-  case 9:
-  case 10:
-  case 11:
-  case 12:
-    if(address == 0x80000c4 || address == 0x80000c6 || address == 0x80000c8)
-      value = rtcRead(address);
-    else
-	{
-#ifdef uppern_read_emulation
-	if((address&0x1FFFFFE) > romSize)
-	{
-#ifdef print_uppern_read_emulation
-		iprintf("high r16 %08x\n",address);
-#endif
-		if(ichflyfilestreamsize > (address&0x1FFFFFE))
-		{
-			//fseek (ichflyfilestream , address&0x1FFFFFE , SEEK_SET);
-			//fread (&value,1,2,ichflyfilestream);
-			//ichfly_readfrom(ichflyfilestream,(address&0x1FFFFFE),(char*)&value,2);
-			value = ichfly_readu16(address&0x1FFFFFE);
-		}
-		else
-		{
-			value = 0;
-		}
-	}
-	else
-	{
-		value = READ16LE(((u16 *)&rom[address & 0x1FFFFFE]));
-	}
-#else
-    value = READ16LE(((u16 *)&rom[address & 0x1FFFFFE]));
-#endif
-	}
-    break;    
-  case 13:
-#ifdef printsaveread
-	  iprintf("%X\n\r",address);
-#endif    if(cpuEEPROMEnabled)
-      // no need to swap this
-      return  eepromRead(address);
-    goto unreadable;
-  case 14:
-#ifdef printsaveread
-	  iprintf("%X\n\r",address);
-#endif    if(cpuFlashEnabled | cpuSramEnabled)
-      // no need to swap this
-      return flashRead(address);
-    // default
-  default:
-  unreadable:
-#ifdef checkclearaddrrw
-      //Log("Illegal word read: %08x at %08x\n", address,reg[15].I);
-	  Log("Illegal hword read: %08x\n", address);
-	  REG_IME = IME_DISABLE;
-	  debugDump();
-	  while(1);
-#endif
-
-    /*if(cpuDmaHack) {
-      value = cpuDmaLast & 0xFFFF;
-    } else {
-      if(armState) {
-        value = CPUReadHalfWordQuick(reg[15].I + (address & 2));
-      } else {
-        value = CPUReadHalfWordQuick(reg[15].I);
-      }
-    }*/
-    break;
-  }
-
-  if(address & 1) {
-    value = (value >> 8) | (value << 24);
-  }
-  
-  return value;
-}
 
 __attribute__((section(".itcm")))
 u8 CPUReadByterealpu(u32 address) //ichfly not inline is faster because it is smaler
@@ -4404,12 +3840,6 @@ iprintf("r8 %02x\n",address);
 	{
 		updateVCsub();
 	}
-	
-	if(address==0x04000006){
-		return (u8)VCOUNT;
-		break;
-	}
-	
 #ifdef gba_handel_IRQ_correct
 	if(address == 0x4000202 || address == 0x4000203)//ichfly update
 	{
@@ -4855,120 +4285,147 @@ void CPUWriteBytepu(u32 address, u8 b)
   }
 }
 
-
-
-//realpu reads from ichfly gba map / nds hardware
-
 __attribute__((section(".itcm")))
-u32 CPUReadMemory(u32 address)
+u16 CPUReadHalfWordrealpuSigned(u32 address)
 {
-	return CPUReadMemoryreal(address);
+  u16 value = CPUReadHalfWordrealpu(address);
+  if((address & 1))
+    value = (s8)value;
+  return value;
 }
 
-__attribute__((section(".itcm")))
-s16 CPUReadHalfWordSignedoutline(u32 address)
-{
-	return (s16)CPUReadHalfWordSigned(address);
-}
 
 __attribute__((section(".itcm")))
-s8 CPUReadByteSigned(u32 address)
+u32 CPUReadHalfWordrealpu(u32 address) //ichfly not inline is faster because it is smaler
 {
-	return (s8)CPUReadBytereal(address);
-}
+#ifdef printreads
+	iprintf("r16 %08x (%08X)\n",address,cpu_GetMemPrem());
+#endif
+#ifdef DEV_VERSION      
+  if(address & 1) {
+    if(systemVerbose & VERBOSE_UNALIGNED_MEMORY) {
+      Log("Unaligned halfword read: %08x at %08x\n", address, armMode ?
+          armNextPC - 4 : armNextPC - 2);
+    }
+  }
+#endif
+  
+  u32 value;
+  
+  switch(address >> 24) {
+  case 4:
+  
+	if(address > 0x40000FF && address < 0x4000111)
+	{
+		
+		if((address&0x2) == 0)
+		{
+			if(ioMem[address & 0x3fe] & 0x8000)
+			{
+				value = ((*(u16 *)(address)) >> 1) | 0x8000;
+			}
+			else
+			{
+				value = (*(u16 *)(address)) >> 1;
+			}
+			return value;
+		}
+	}
+  
+	if(address > 0x4000003 && address < 0x4000008)//ichfly update
+	{
+		updateVCsub();
+	}
+	
+#ifdef gba_handel_IRQ_correct
+	if(address == 0x4000202)//ichfly update
+	{
+		IF = *(vuint16*)0x04000214;
+		UPDATE_REG(0x202, IF);
+	}
+#endif
+	
+    if((address < 0x4000400) && ioReadable[address & 0x3fe])
+    {
+		value =  READ16LE(((u16 *)&ioMem[address & 0x3fe]));
+    }
+    else goto unreadable;
+    break;
+  case 8:
+  case 9:
+  case 10:
+  case 11:
+  case 12:
+    if(address == 0x80000c4 || address == 0x80000c6 || address == 0x80000c8)
+      value = rtcRead(address);
+    else
+	{
+#ifdef uppern_read_emulation
+	if((address&0x1FFFFFE) > romSize)
+	{
+#ifdef print_uppern_read_emulation
+		iprintf("high r16 %08x\n",address);
+#endif
+		if(ichflyfilestreamsize > (address&0x1FFFFFE))
+		{
+			//fseek (ichflyfilestream , address&0x1FFFFFE , SEEK_SET);
+			//fread (&value,1,2,ichflyfilestream);
+			//ichfly_readfrom(ichflyfilestream,(address&0x1FFFFFE),(char*)&value,2);
+			value = ichfly_readu16(address&0x1FFFFFE);
+		}
+		else
+		{
+			value = 0;
+		}
+	}
+	else
+	{
+		value = READ16LE(((u16 *)&rom[address & 0x1FFFFFE]));
+	}
+#else
+    value = READ16LE(((u16 *)&rom[address & 0x1FFFFFE]));
+#endif
+	}
+    break;    
+  case 13:
+#ifdef printsaveread
+	  iprintf("%X\n\r",address);
+#endif    if(cpuEEPROMEnabled)
+      // no need to swap this
+      return  eepromRead(address);
+    goto unreadable;
+  case 14:
+#ifdef printsaveread
+	  iprintf("%X\n\r",address);
+#endif    if(cpuFlashEnabled | cpuSramEnabled)
+      // no need to swap this
+      return flashRead(address);
+    // default
+  default:
+  unreadable:
+#ifdef checkclearaddrrw
+      //Log("Illegal word read: %08x at %08x\n", address,reg[15].I);
+	  Log("Illegal hword read: %08x\n", address);
+	  REG_IME = IME_DISABLE;
+	  debugDump();
+	  while(1);
+#endif
 
-__attribute__((section(".itcm")))
-u32 CPUReadHalfWord(u32 address)
-{
-	return CPUReadHalfWordreal(address);
-}
+    /*if(cpuDmaHack) {
+      value = cpuDmaLast & 0xFFFF;
+    } else {
+      if(armState) {
+        value = CPUReadHalfWordQuick(reg[15].I + (address & 2));
+      } else {
+        value = CPUReadHalfWordQuick(reg[15].I);
+      }
+    }*/
+    break;
+  }
 
-__attribute__((section(".itcm")))
-u8 CPUReadByte(u32 address)
-{
-	return CPUReadBytereal(address);
-}
-
-__attribute__((section(".itcm")))
-void CPUWriteMemoryextern(u32 address, u32 value)
-{
-	CPUWriteMemory(address,value);
-}
-
-__attribute__((section(".itcm")))
-void CPUWriteHalfWordextern(u32 address, u16 value)
-{
-	CPUWriteHalfWord(address,value);
-}
-
-__attribute__((section(".itcm")))
-void CPUWriteByteextern(u32 address, u8 b)
-{
-	CPUWriteByte(address,b);
-}
-
-__attribute__((section(".itcm")))
-u8 ichfly_readu8extern(unsigned int pos)
-{
-	return ichfly_readu8(pos);
-}
-
-__attribute__((section(".itcm")))
-u16 ichfly_readu16extern(unsigned int pos)
-{
-	return ichfly_readu16(pos);
-}
-
-__attribute__((section(".itcm")))
-u32 ichfly_readu32extern(unsigned int pos)
-{
-	return ichfly_readu32(pos);
-}
-
-__attribute__((section(".itcm")))
-u32 CPUReadMemorypu(u32 address)
-{
-	return CPUReadMemoryrealpu(address);
-}
-
-__attribute__((section(".itcm")))
-u32 CPUReadHalfWordpu(u32 address)
-{
-	return CPUReadHalfWordrealpu(address);
-}
-
-__attribute__((section(".itcm")))
-u8 CPUReadBytepu(u32 address)
-{
-	return CPUReadByterealpu(address);
-}
-
-__attribute__((section(".itcm")))
-void CPUWriteMemorypuextern(u32 address, u32 value)
-{
-	CPUWriteMemorypu(address,value);
-}
-
-__attribute__((section(".itcm")))
-void CPUWriteHalfWordpuextern(u32 address, u16 value)
-{
-	CPUWriteHalfWordpu(address,value);
-}
-
-__attribute__((section(".itcm")))
-void CPUWriteBytepuextern(u32 address, u8 b)
-{
-	CPUWriteBytepu(address,b);
-}
-
-__attribute__((section(".itcm")))
-s16 CPUReadHalfWordrealpuSignedoutline(u32 address)
-{
-	return (s16)CPUReadHalfWordrealpuSigned(address);
-}
-
-__attribute__((section(".itcm")))
-s8 CPUReadByteSignedpu(u32 address)
-{
-	return (s8)CPUReadByterealpu(address);
+  if(address & 1) {
+    value = (value >> 8) | (value << 24);
+  }
+  
+  return value;
 }

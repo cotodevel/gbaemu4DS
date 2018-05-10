@@ -15,18 +15,8 @@ include $(DEVKITARM)/ds_rules
 # all directories are relative to this makefile
 #---------------------------------------------------------------------------------
 BUILD		:=	build
-SOURCES		:=	source	\
-				source/ipc	\
-				source/wireless	\
-				../common
-INCLUDES	:=	include	\
-				../include	\
-				../include/arpa	\
-				../include/netinet	\
-				../include/sys	\
-				source/wireless	\
-				../common	\
-				build
+SOURCES		:=	source  
+INCLUDES	:=	include build
 DATA		:=
  
 #---------------------------------------------------------------------------------
@@ -46,7 +36,7 @@ CXXFLAGS	:=	$(CFLAGS) -fno-rtti -fno-exceptions -fno-rtti
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=ds_arm7gbaemu.specs -g $(ARCH) -Wl,-Map,$(notdir $*).map
 
-LIBS	:=	-ldswifi7 -lnds7
+LIBS	:=	-ldswifi7 -lmm7 -lnds7
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing

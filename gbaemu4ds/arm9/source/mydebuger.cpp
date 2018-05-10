@@ -1,5 +1,4 @@
-#include "../../common/cpuglobal.h"
-#include "../../common/gba_ipc.h"
+#include "../../gloabal/cpuglobal.h"
 
 
 #include <nds.h>
@@ -28,6 +27,23 @@
 
 
 #include "main.h"
+
+
+typedef struct
+{
+	u32 entryPoint;
+	u8 logo[156];
+	char title[0xC];
+	char gamecode[0x4];
+	u16 makercode;
+	u8 is96h;
+	u8 unitcode;
+	u8 devicecode;
+	u8 unused[7];
+	u8 version;
+	u8 complement;
+	u16 checksum;
+} __attribute__ ((__packed__)) gbaHeader_t;
 
 #include <stdio.h>
 #include <stdlib.h>

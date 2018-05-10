@@ -21,6 +21,13 @@
 #include <nds/arm9/sassert.h>
 #include <stdarg.h>
 
+void VblankHandler();
+
+void BIOScall(int op,  s32 *R);
+
+extern "C" void cpu_SetCP15Cnt(u32 v);
+extern "C" u32 cpu_GetCP15Cnt();
+
 #include <filesystem.h>
 #include "GBA.h"
 #include "Sound.h"
@@ -87,8 +94,7 @@ extern "C" void swiHalt(void);
 #include "Util.h"
 #include "Port.h"
 #include "agbprint.h"
-#include "../../../common/gba_ipc.h"
-#include "../../../common/cpuglobal.h"
+
 
 
 extern "C" u32 savedsp;
@@ -97,14 +103,14 @@ extern "C" u32 savedlr;
 //#define DEV_VERSION
 
 
-bool disableMessage = false;
+extern bool disableMessage;
 
 
 
 void gbaExceptionHdl();
 
 
-extern "C" int spirq;
+extern "C" int SPtoload;
 extern "C" int SPtemp;
 
 
@@ -166,6 +172,12 @@ int lastdebugsize = 6;
 
 //extern "C" void exMain(); 
 
+extern void __attribute__((section(".dtcm"))) (*exHandler)();
+extern void __attribute__((section(".dtcm"))) (*exHandlerswi)();
+extern void __attribute__((section(".dtcm"))) (*exHandlerundifined)();
+extern s32  __attribute__((section(".dtcm"))) exRegs[];
+extern s32  __attribute__((section(".dtcm"))) BIOSDBG_SPSR;
+
 //#define BIOSDBG_CP15 *((volatile u32*)0x027FFD8C)
 //#define BIOSDBG_SPSR *((volatile u32*)0x027FFD90)
 //#define BIOSDBG_R12  *((volatile u32*)0x027FFD94)
@@ -186,7 +198,7 @@ void debugDump()
 		Log("R%d=%X ", i, exRegs[i]);
 	} 
 	Log("\n");
-	Log("sup %X %X\n",spirq,SPtemp);
+	Log("sup %X %X\n",SPtoload,SPtemp);
 
 	/*if((exRegs[13] &0xFF000000) != 0x3000000)
 	{
@@ -262,8 +274,8 @@ void exInit(void (*customHdl)())
 	exHandler = customHdl;
 }
 
-void emuInstrARM(u32 instr, u32 *regs);
-void emuInstrTHUMB(u16 instr, u32 *regs);
+void emuInstrARM(u32 instr, s32 *regs);
+void emuInstrTHUMB(u16 instr, s32 *regs);
 
 #define B8(h,g,f,e,d,c,b,a) ((a)|((b)<<1)|((c)<<2)|((d)<<3)|((e)<<4)|((f)<<5)|((g)<<6)|((h)<<7))
 
@@ -309,42 +321,60 @@ void gbaInit(bool slow)
 
 	cpu_SetCP15Cnt(cpu_GetCP15Cnt() & ~0x1); //disable pu while configurating pu
 
-	pu_SetDataCachability(   0b00111110);
-	pu_SetCodeCachability(   0b00111110);
-	pu_GetWriteBufferability(0b00100010);	
+	if(slow)
+	{
+		pu_SetDataCachability(   0b01111100);
+		pu_SetCodeCachability(   0b01111100);
+		pu_GetWriteBufferability(0b01111100);
+	}
+	else
+	{
+		pu_SetDataCachability(   0b00111100);
+		pu_SetCodeCachability(   0b00111100);
+		pu_GetWriteBufferability(0b00111100);
+	}	
 
 
 #ifdef releas
 	exInit(gbaExceptionHdl); //define handler
 #endif
 
+
+
 	WRAM_CR = 0; //swap wram in
-	pu_SetRegion(0, 0x00000000 | PU_PAGE_128M | 1);
-	pu_SetRegion(1, 0x027C0000 | PU_PAGE_16K | 1);	//dtcm helper: enable I/Dtcm caches in DTCM region: gives speedup
-	pu_SetRegion(2, 0x02040000 | PU_PAGE_256K | 1);	//ewram mirror gba #1, nds mode mpu traps this region: #1: 0x02040000 ~ 0x0207ffff / speedup access by MPU
-	pu_SetRegion(3, 0x02080000 | PU_PAGE_256K | 1); //ewram mirror gba #2, nds mode mpu traps this region: #2: 0x02080000 ~ 0x020fffff / speedup access by MPU
-	pu_SetRegion(4, 0x020C0000 | PU_PAGE_256K | 1); //ewram mirror gba #3, nds mode mpu traps this region: #3: 0x02100000 ~ 0x0213ffff / speedup access by MPU
-	pu_SetRegion(5, 0x02100000 | PU_PAGE_1M | 1);	//nds ewram emu helper: enable I/Dtcm caches in EWRAM NDS emulator code region: gives speedup
-	pu_SetRegion(6, 0x00000000 | PU_PAGE_16M | 1);
-	pu_SetRegion(7, 0x04000000 | PU_PAGE_16M | 1);
-	
+
+	if(slow)
+	{
+		pu_SetRegion(0, 0x00000000 | PU_PAGE_128M | 1);
+		//pu_SetRegion(1, 0x0b000000 | PU_PAGE_16K | 1);
+		pu_SetRegion(1, 0);
+		pu_SetRegion(2, 0x02040000 | PU_PAGE_256K | 1);
+		pu_SetRegion(3, 0x02080000 | PU_PAGE_256K | 1);
+		pu_SetRegion(4, 0x020C0000 | PU_PAGE_128K | 1);
+		pu_SetRegion(5, 0x020E0000 | PU_PAGE_16K | 1);
+		pu_SetRegion(6, 0x00000000 | PU_PAGE_16M | 1);
+		pu_SetRegion(7, 0x04000000 | PU_PAGE_16M | 1);
+	}
+	else
+	{
+		pu_SetRegion(0, 0x00000000 | PU_PAGE_128M | 1);
+		//pu_SetRegion(1, 0x0b000000 | PU_PAGE_16K | 1);
+		pu_SetRegion(1, 0);
+		pu_SetRegion(2, 0x02040000 | PU_PAGE_256K | 1);
+		pu_SetRegion(3, 0x02080000 | PU_PAGE_512K | 1);
+		pu_SetRegion(4, 0x02100000 | PU_PAGE_1M | 1);
+		pu_SetRegion(5, 0x02200000 | PU_PAGE_2M | 1);
+		pu_SetRegion(6, 0x00000000 | PU_PAGE_16M | 1);
+		pu_SetRegion(7, 0x04000000 | PU_PAGE_16M | 1);
+	}
+
 	pu_Enable(); //PU go
-	DC_FlushAll(); //try it	
+
+	DC_FlushAll(); //try it
+	
+	
 	IC_InvalidateAll();
-}
-
-__attribute__((section(".itcm")))
-void puGba()
-{
-	pu_SetCodePermissions(0x06300033);	
-	pu_SetDataPermissions(0x06300033);
-}
-
-__attribute__((section(".itcm")))
-void puNds()
-{	
-	pu_SetDataPermissions(0x33333333);
-	pu_SetCodePermissions(0x33333333);
+	
 }
 
 __attribute__((section(".itcm")))
@@ -371,10 +401,8 @@ if(lastdebugcurrent == lastdebugsize)lastdebugcurrent = 0;
 	//while(1);
 }
 
-
-
 __attribute__((section(".itcm")))
-void BIOScall(int op,  u32 *R)
+void BIOScall(int op,  s32 *R)
 {
 	int comment = op & 0x003F;
 	
@@ -383,7 +411,7 @@ void BIOScall(int op,  u32 *R)
 		BIOS_SoftReset();
 		break;
 	  case 0x01:
-		BIOS_RegisterRamReset(R[0]);
+		BIOS_RegisterRamReset(exRegs[0]);
 		break;
 	  case 0x02:
 #ifdef DEV_VERSION
@@ -409,11 +437,7 @@ void BIOScall(int op,  u32 *R)
 			//holdType = -1;
 			//stopState = true;
 			//cpuNextEvent = cpuTotalTicks;
-			
-			//coto: raise sleepmode swi 0x3 gba
-			enterGBASleepMode();
-			
-			//ichflyswiIntrWait(1,(IE & 0x6080));
+			ichflyswiIntrWait(1,(IE & 0x6080));
 		  break;
 	  case 0x04:
 
@@ -575,6 +599,21 @@ void downgreadcpu()
 	cpu_SetCP15Cnt(cpu_GetCP15Cnt() | BIT(15));
 }
 
+__attribute__((section(".itcm")))
+inline void puGba()
+{
+	pu_SetCodePermissions(0x06333333);	
+	pu_SetDataPermissions(0x06333333);
+}
+
+__attribute__((section(".itcm")))
+inline void puNds()
+{	
+	pu_SetDataPermissions(0x33333333);
+	pu_SetCodePermissions(0x33333333);
+}
+
+
 
 
 #ifndef releas
@@ -606,7 +645,7 @@ void ndsExceptionHdl()
 }
 #endif
 
-void ndsModeinline()
+inline void ndsModeinline()
 {
 	puNds();
 #ifndef releas
@@ -717,7 +756,7 @@ void gbaMode2()
 	puGba();	
 }
 __attribute__((section(".itcm")))
-void gbaMode()
+inline void gbaMode()
 {
 	puGba();	
 }

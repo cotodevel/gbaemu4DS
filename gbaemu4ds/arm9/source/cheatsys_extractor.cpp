@@ -66,6 +66,18 @@
 u32 mastercode = 0;
 
 
+#define READ16LE(x) \
+  *((u16 *)x)
+#define READ32LE(x) \
+  *((u32 *)x)
+#define WRITE16LE(x,v) \
+  *((u16 *)x) = (v)
+#define WRITE32LE(x,v) \
+  *((u32 *)x) = (v)
+
+
+
+
 #define UNKNOWN_CODE                  -1
 #define INT_8_BIT_WRITE               0
 #define INT_16_BIT_WRITE              1

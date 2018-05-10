@@ -16,11 +16,12 @@
 // along with this program; if not, write to the Free Software Foundation,
 // Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-#include <nds.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 //#include <zlib.h> //todo ichfly
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <nds/memory.h>//#include <memory.h> ichfly
@@ -35,10 +36,9 @@
 #include <nds/arm9/sassert.h>
 #include <stdarg.h>
 #include <string.h>
-#include <assert.h>
 
-#include "../../common/cpuglobal.h"
-#include "../../common/gba_ipc.h"
+#include <nds.h>
+#include <stdio.h>
 
 extern "C" void getandpatchmap(int offsetgba,int offsetthisfile);
 void arm7dmareqandcheat();
@@ -875,8 +875,6 @@ void patchit(int romSize2)
 			}
 			break;
 			case 5:
-			{	
-			#ifdef usebuffedVcout
 				extern u8 VCountgbatods[0x100]; //(LY)      (0..227) + check overflow
 				extern u8 VCountdstogba[263]; //(LY)      (0..262)
 				extern u8 VCountdoit[263]; //jump in or out
@@ -889,8 +887,6 @@ void patchit(int romSize2)
 				fread(VCountdstogba,1,263,patchf);
 				fread(VCountdoit,1,263,patchf);
 				fseek(patchf,coo,SEEK_SET);
-			#endif
-			}
 			break;
 		}
 	}
@@ -952,10 +948,7 @@ u8 *utilLoad(const char *file, //ichfly todo
   }*/
 
 	r = fread(image, 1, read, f);
-	
-	//set up header
-    memcpy((u8*)&GetsIPCSharedGBA()->gbaheader,(u8*)rom,sizeof(gbaHeader_t));
-    
+
 #ifndef uppern_read_emulation
   fclose(f);
 #else
@@ -976,265 +969,4 @@ u8 *utilLoad(const char *file, //ichfly todo
 
 
   return image;
-}
-
-
-
-//VA + ( DTCMTOP - (stack_size)*4) - dtcm_reservedcode[end_of_usedDTCMstorage] (we use for the emu)  in a loop of CACHE_LINE size
-
-// returns unary(decimal) ammount of bits using the Hamming Weight approach 
-
-//8 bit depth Lookuptable 
-//	0	1	2	3	4	5	6	7	8	9	a	b	c	d	e	f
-const u8 minilut[0x10] = {
-	0,	1,	1,	2,	1,	2,	2,	3,	1,	2,	2,	3,	2,	3,	3,	4,		//0n
-};
-
-u8 lutu16bitcnt(u16 x){
-	return (minilut[x &0xf] + minilut[(x>>4) &0xf] + minilut[(x>>8) &0xf] + minilut[(x>>12) &0xf]);
-}
-
-u8 lutu32bitcnt(u32 x){
-	return (lutu16bitcnt(x & 0xffff) + lutu16bitcnt(x >> 16));
-}
-
-
-//counts leading zeroes :)
-u8 clzero(u32 var){
-   
-    u8 cnt=0;
-    u32 var3;
-    if (var>0xffffffff) return 0;
-   
-    var3=var; //copy
-    var=0xFFFFFFFF-var;
-    while((var>>cnt)&1){
-        cnt++;
-    }
-    if ( (((var3&0xf0000000)>>28) >0x7) && (((var3&0xff000000)>>24)<0xf)){
-        var=((var3&0xf0000000)>>28);
-        var-=8; //bit 31 can't count to zero up to this point
-            while(var&1) {
-                cnt++; var=var>>1;
-            }
-    }
-return cnt;
-}
-
-
-char* strtoupper(char* s) {
-  assert(s != NULL);
-
-  char* p = s;
-  while (*p != '\0') {
-    *p = toupper(*p);
-    p++;
-  }
-
-  return s;
-}
-
-char* strtolower(char* s) {
-  assert(s != NULL);
-
-  char* p = s;
-  while (*p != '\0') {
-    *p = tolower(*p);
-    p++;
-  }
-
-  return s;
-}
-
-
-//coto: if a game is defined here savetype from gamecode will be used
-int save_decider(){
-
-//void * memcpy ( void * destination, const void * source, size_t num );
-int savetype=0;
-char gamecode[6]; 
-memcpy((char*)gamecode,(u8*)&GetsIPCSharedGBA()->gbaheader.gamecode,6);
-
-//iprintf("GameCode is: %s \n",gamecode);
-//iprintf("GameCode is: %s \n",strtoupper(gamecode));
-//iprintf("GameCode is: %s \n",strtolower(gamecode));
-//while(1);
-
-    if( strncmp( 
-        strtoupper((char*)gamecode), 
-        strtoupper((char*)"bpre01"), //firered 128K
-        6
-        ) == 0 
-        )
-    {
-        
-        //iprintf("firered detected!!!! \n");
-        //while(1);
-        savetype = 3; 
-    }
-    
-	else if( strncmp( 
-        strtoupper((char*)gamecode), 
-        strtoupper((char*)"bpge01"), //greenleaf 128K
-        6
-        ) == 0 
-        )
-    {
-        
-        //iprintf("greenleaf detected!!!! \n");
-        //while(1);
-        savetype = 3; 
-    }
-    
-    else if( strncmp( 
-        strtoupper((char*)gamecode), 
-        strtoupper((char*)"amze01"), //mario 1 eeprom 64K
-        6
-        ) == 0 
-        )
-    {
-        
-        //iprintf("smb1 detected!!!! \n");
-        //while(1);
-        savetype = 1; 
-    }
-    
-    else if( strncmp( 
-        strtoupper((char*)gamecode), 
-        strtoupper((char*)"ax4p01"), //mario 3 128K
-        6
-        ) == 0 
-        )
-    {
-        
-        //iprintf("smb3 detected!!!! \n");
-        //while(1);
-        savetype = 3; 
-    }
-
-    int myflashsize = 0x10000;
-
-    //Flash setup: 0 auto / 1 eeprom / 2 sram / 3 flashrom /4 eeprom + sensor / 5 none
-    if(savetype == 3)
-    {
-        myflashsize = 0x20000;
-        cpuSaveType = 3;
-    }
-    else if(savetype == 1)
-    {
-        myflashsize = 0x10000;
-        cpuSaveType = 1; 
-    }
-    else
-        cpuSaveType = savetype;
-
-    //Flash format
-    if(cpuSaveType == 3){
-        flashSetSize(myflashsize);
-        iprintf("[FLASH %d bytes]\n",myflashsize);
-    }
-
-return savetype;
-}
-
-__attribute__((section(".itcm")))
-u32 STMW_myregs(u32 opcode, u32 temp, u32 address,u32 val,u32 num,u32 base){
-	//summon (static) offset fixup
-	extern int offset;
-	
-	if(opcode & (val)) {
-		CPUWriteMemorypu(address, myregs[(num)].I);
-		if(!offset) {
-			myregs[base].I = temp;
-			offset = 1;
-		}
-		address += 4;
-	}
-return address;
-}
-
-
-__attribute__((section(".itcm")))
-u32 STM_myregs(u32 opcode, u32 address,u32 val,u32 num){
-	//summon (static) offset fixup
-	extern int offset;
-	
-	if(opcode & (val))	{
-		CPUWriteMemorypu(address, myregs[(num)].I);
-		if(!offset) {
-			offset = 1;
-		} 
-	address += 4;
-	}
-return address;
-}
-
-__attribute__((section(".itcm")))
-u32 LDM_myregs(u32 opcode, u32 address,u32 val,u32 num){
-	//summon (static) offset fixup
-	extern int offset;
-	if(opcode & (val)) {
-		myregs[(num)].I = CPUReadMemoryrealpu(address);
-    if(offset){}
-    else {
-      offset = 1;
-    }
-    address += 4;
-	}
-return address;
-}
-
-__attribute__((section(".itcm")))
-u32 THUMB_STM_myregs(u32 opcode,u32 temp,u32 address,u32 val,u32 r,u32 b){
-	//summon (static) offset fixup
-	extern int offset;
-	
-	if(opcode & (val)) {
-		CPUWriteMemorypu(address, myregs[(r)].I);
-		if(!offset) {
-			myregs[(b)].I = temp;
-		}
-		offset = 1;
-		address += 4;
-	}
-return address;
-}
-
-__attribute__((section(".itcm")))
-u32 THUMB_LDM_myregs(u32 opcode,u32 temp,u32 address,u32 val,u32 r){
-	//summon (static) offset fixup
-	extern int offset;
-	
-	if(opcode & (val)) {
-		myregs[(r)].I = CPUReadMemoryrealpu(address);
-		offset = 1;
-		address += 4;
-	}
-return address;
-}
-
-__attribute__((section(".itcm")))
-u32 PUSH_myregs(u32 opcode, u32 address,u32 val, u32 r){
-	//summon (static) offset fixup
-	extern int offset;
-	
-	if(opcode & (val)) {
-		CPUWriteMemorypu(address, myregs[(r)].I);
-		offset = 1;
-		address += 4;
-	}
-return address;
-}
-
-__attribute__((section(".itcm")))
-u32 POP_myregs(u32 opcode, u32 address,u32 val, u32 r){
-	//summon (static) offset fixup
-	extern int offset;
-	
-	if(opcode & (val)) {
-		myregs[(r)].I = CPUReadMemoryrealpu(address);
-		offset = 1;
-		address += 4;
-	}
-return address;
 }

@@ -32,18 +32,18 @@
 #define advanced_irq_check
 
 //debug
-//#define usebuffedVcout		//preset line counter or hardware vcounter
+#define usebuffedVcout		//preset line counter or hardware vcounter
 #define unsecamr7com		//allows arm7 to either reach all gba map (unsecure,defined) or nds-hardware mapped mem (undefined)
 
 //#define printsaveread
 //#define printsavewrite
 
-#define directcpu //use anothercpu.arm.c for data abort handling
+#define directcpu //rename anothercpu.cpp to anothercpu.h
 
 //#define print_uppern_read_emulation
-//#define ichflyDebugdumpon
-//#define countpagefalts
-//#define showdebug
+#define ichflyDebugdumpon
+#define countpagefalts
+#define showdebug
 
 //#define DEV_VERSION	//printf load/stores
 

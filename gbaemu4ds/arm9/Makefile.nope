@@ -18,59 +18,38 @@ include $(DEVKITARM)/ds_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	$(shell basename $(CURDIR))
 BUILD		:=	build
-
 SOURCES		:=	source \
-				source/hbmenustub	\
-				../common	\
-                source/memory_handler_gba   \
-                source/adpcm  \
-                source/dswifi_arm9  \
-                source/cpu_misc \
-                source/httpstack    \
-                source/happyhttp    \
-                source/nifi \
-                source/disk_fs/ \
-                source/ipc/
- 
-INCLUDES	:=	include	\
-                source/adpcm  \
-				source/dswifi_arm9  \
-                source/cpu_misc \
-                source/httpstack    \
-                source/happyhttp    \
-                source/nifi \
-                source/disk_fs  \
-                source/ipc/
-
+						source/gtk \
+INCLUDES	:=	include 
 DATA		:=	data  
 GRAPHICS	:=	gfx  
 @NITRODATA	:=	nitrofiles
 
 # These set the information text in the nds file
-GAME_TITLE		:=	Gbaemu4ds
-GAME_SUBTITLE1	:=	2015 Coto - 2013 ichfly/ichichfly
-GAME_SUBTITLE2	:=	
+GAME_TITLE		:=	GBAemu4ds
+GAME_SUBTITLE1	:=	by ichfly/ichichfly
+GAME_SUBTITLE2	:=	ichfly.github.com/gbaemu4DS/
 
 #---------------------------------------------------------------------------------
 # options for code generation  # -save-temps
 #---------------------------------------------------------------------------------
-ARCH	:= -mthumb-interwork -march=armv5te -mtune=arm946e-s -marm -mstructure-size-boundary=32
-CFLAGS	:= -g -Wall -O3\
- 		-mapcs-frame	\
-		-funsafe-math-optimizations	\
+ARCH	:= -mthumb-interwork -march=armv5te -mtune=arm946e-s -mthumb
+CFLAGS	:= -g -Wall -Ofast\
+ 		-fomit-frame-pointer\
+		-ffast-math \
 		$(ARCH)
 
 CFLAGS	+=	$(INCLUDE) -DARM9
-CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -fdata-sections -ffunction-sections
+CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 
-ASFLAGS	:=	-s $(ARCH)
-LDFLAGS       =       --specs=../tgba_arm9.specs $(ARCH) -Wl,--gc-sections,-Map,$(notdir $*.map) 
+ASFLAGS	:=	-g $(ARCH)
+LDFLAGS       =       --specs=../tgba_arm9.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
 
 
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project (order is important)
 #---------------------------------------------------------------------------------
-LIBS	:=  -lnds9
+LIBS	:= #-lfat  -lnds9
  
  
 #---------------------------------------------------------------------------------
@@ -138,11 +117,10 @@ endif
  
 .PHONY: $(BUILD) clean
  
-
 #---------------------------------------------------------------------------------
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
-	@$(MAKE) --no-print-directory -C $(BUILD) -o $(BUILD) -f $(CURDIR)/Makefile
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
  
 #---------------------------------------------------------------------------------
 clean:

@@ -1,10 +1,7 @@
 #include <nds.h>
 #include <stdio.h>
 
-#include "../../common/cpuglobal.h"
-#include "../../common/gba_ipc.h"
-#include "interrupts/fifo_handler.h"
-
+#include "../../gloabal/cpuglobal.h"
 #include <filesystem.h>
 #include "GBA.h"
 #include "Sound.h"
@@ -27,8 +24,11 @@
 #include "arm7sound.h"
 
 #include "main.h"
-#include "wifi_arm9.h"
 
+#define UPDATE_REG(address, value)\
+  {\
+    WRITE16LE(((u16 *)&ioMem[address]),value);\
+  }\
 
 extern char savePath[MAXPATHLEN * 2];
 
@@ -48,8 +48,6 @@ extern char szFile[MAXPATHLEN * 2];
 #include <nds/arm9/sassert.h>
 #include <stdarg.h>
 #include <string.h>
-#include "../../common/dswnifi.h"
-#include "dswifi_arm9/dswnifi_lib.h"
 
 
 
@@ -114,7 +112,11 @@ int ignorenextY = 0;
 
 
 
-int arm9VCOUNTsyncline = 0;
+
+
+
+#define READ16LE(x) \
+  swap16(*((u16 *)(x)))
 
 
 /*
@@ -246,7 +248,7 @@ u8 VCountdstogba[263]; //(LY)      (0..262)
 u8 VCountdoit[263]; //jump in or out
 #endif
 
-extern "C" int spirq;
+extern "C" int SPtoload;
 extern "C" int SPtemp;
 
 #ifdef skipper
@@ -349,16 +351,62 @@ void initspeedupfelder()
 __attribute__((section(".itcm")))
 void HblankHandler(void) {
 //---------------------------------------------------------------------------------
-	Wifi_Sync();
-	
-    DISPSTAT |= (REG_DISPSTAT & 0x3);
-    DISPSTAT |= 0x2;	//hblank
-    DISPSTAT &= 0xFFFe; //remove vblank
-    UPDATE_REG(0x04, DISPSTAT);
-	
-    CPUCheckDMA(2, 0x0f);
-REG_IF = IRQ_HBLANK;
 
+#ifdef usebuffedVcout
+
+	if(VCountdoit[REG_VCOUNT])
+	{
+#ifdef HBlankdma
+		CPUCheckDMA(2, 0x0f);
+#endif
+	}
+	else
+	{
+		REG_IF = IRQ_HBLANK;
+	}
+#ifdef forceHBlankirqs
+	if(!(IE & IRQ_HBLANK))REG_IF = IRQ_HBLANK;
+#endif
+
+
+#else
+	u16 res1;
+	u16 res2;
+	u16 temp = REG_VCOUNT;
+	if(temp < 192)
+	{
+		res1 = ((temp * 214) >> 8);//VCOUNT = help * (1./1.2); //1.15350877;
+		//help3 = (help + 1) * (1./1.2); //1.15350877;  // ichfly todo it is to slow
+	}
+	else
+	{
+		res1 = (((temp - 192) * 246) >>  8)+ 160;//VCOUNT = ((temp - 192) * (1./ 1.04411764)) + 160 //* (1./ 1.04411764)) + 160; //1.15350877;
+		//help3 = ((help - 191) *  (1./ 1.04411764)) + 160; //1.15350877;  // ichfly todo it is to slow			
+	}
+	temp++;
+	if(temp < 192)
+	{
+		res2 = ((temp * 214) >> 8);//VCOUNT = help * (1./1.2); //1.15350877;
+		//help3 = (help + 1) * (1./1.2); //1.15350877;  // ichfly todo it is to slow
+	}
+	else
+	{
+		res2 = (((temp - 192) * 246) >>  8)+ 160;//VCOUNT = ((temp - 192) * (1./ 1.04411764)) + 160 //* (1./ 1.04411764)) + 160; //1.15350877;
+		//help3 = ((help - 191) *  (1./ 1.04411764)) + 160; //1.15350877;  // ichfly todo it is to slow			
+	}
+
+
+	if(res1 == res2)
+	{
+		REG_IF = IRQ_HBLANK;
+#ifdef HBlankdma
+		CPUCheckDMA(2, 0x0f);
+#endif
+	}
+#ifdef forceHBlankirqs
+	if(!(IE & IRQ_HBLANK))REG_IF = IRQ_HBLANK;
+#endif
+#endif
 }
 
 #ifdef showdebug
@@ -372,18 +420,6 @@ u8 counterenters = 0;
 __attribute__((section(".itcm")))
 void VblankHandler(void) {
 //---------------------------------------------------------------------------------
-	
-	//handles DS-DS Comms
-	sint32 currentDSWNIFIMode = doMULTIDaemonStage1();
-		
-	DISPSTAT |= (REG_DISPSTAT & 0x3);
-	DISPSTAT |= 0x1;	//vblank
-	DISPSTAT &= 0xFFFd; //remove hblank
-	UPDATE_REG(0x04, DISPSTAT);
-
-	CPUCheckDMA(1, 0x0f); //V-Blank
-
-
 #ifdef showdebug
 	iprintf("\x1b[2J");
 	iprintf("%d %d\n",VBlankIntrWaitentertimesshow,IntrWaitnum);
@@ -391,7 +427,6 @@ void VblankHandler(void) {
 	extern void showcomdebug();
 	showcomdebug();
 #endif
-
 	counterenters++;
 	if(counterenters == 60)
 	{
@@ -461,12 +496,24 @@ if(lastdebugcurrent == lastdebugsize)lastdebugcurrent = 0;
 		framewtf = 0;
 		if((DISPCNT & 7) < 3)
 		{
-			dmaCopyWords(3,(void*)0x06010000,(void*)0x06400000,0x8000);
+			extern void arm7dmareq();
+			arm7dmareq();
+			dmaCopyWords(3,(void*)0x06010000,(void*)0x06400000,0x2000);
+			arm7dmareq();
+			dmaCopyWords(3,(void*)0x06012000,(void*)0x06402000,0x2000);
+			arm7dmareq();
+			dmaCopyWords(3,(void*)0x06014000,(void*)0x06404000,0x2000);
+			arm7dmareq();
+			dmaCopyWords(3,(void*)0x06016000,(void*)0x06406000,0x2000);
 		}
 		else
 		{
-			dmaCopyWords(3,(void*)0x06014000,(void*)0x06404000,0x4000);
-		
+			arm7dmareq();
+			dmaCopyWords(3,(void*)0x06014000,(void*)0x06404000,0x2000);
+			arm7dmareq();
+			dmaCopyWords(3,(void*)0x06016000,(void*)0x06406000,0x2000);
+			arm7dmareq();
+
 			if((DISPCNT & 7) == 3) //BG Mode 3 - 240x160 pixels, 32768 colors
 			{
 				u8 *pointertobild = (u8 *)(0x6000000);
@@ -527,8 +574,10 @@ if(lastdebugcurrent == lastdebugsize)lastdebugcurrent = 0;
 			ignorenextY = 60; // 1 sec break time
 		}
 		else {ignorenextY -= 1;}
-	}   
+	}            
     UPDATE_REG(0x130, P1);
+
+	CPUCheckDMA(1, 0x0f); //V-Blank
 
 #ifdef lastdebug
 lasttime[lastdebugcurrent] = 0x0000001;

@@ -1,86 +1,35 @@
+//ichfly all //ARITHMETIC_DATA_OPCODE disabeled
+
+////armNextPC disabeled 
+//
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-//#include <zlib.h> //todo ichfly
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <nds/memory.h>
-#include <nds/ndstypes.h>
-#include <nds/memory.h>
-#include <nds/bios.h>
-#include <nds/system.h>
-#include <nds/arm9/math.h>
-#include <nds/arm9/video.h>
-#include <nds/arm9/videoGL.h>
-#include <nds/arm9/trig_lut.h>
-#include <nds/arm9/sassert.h>
-#include <stdarg.h>
-#include <string.h>
-
-#include <nds.h>
-#include <stdio.h>
-
-#include <filesystem.h>
-#include "GBA.h"
-#include "Sound.h"
-#include "Util.h"
-#include "getopt.h"
-#include "System.h"
-#include <fat.h>
-#include <dirent.h>
-
-#include "cpumg.h"
-#include "bios.h"
-
-#include "mydebuger.h"
-
-#include "./disk_fs/file_browse.h"
-
-#include <nds.h>
-
-#include "main.h"
-#include "./disk_fs/fatfileextract.h"
-#include "./disk_fs/fatfile.h"
-
+#include "GBAinline.h"
 #include "armdis.h"
 #include "GBA.h"
+#include "fatfile.h"
+#include "fatfileextract.h"
+#include "Util.h"
+#define patchmyregsfromromtoromaddr //parts todo
 
-//coto: removed because this is a (VBA) hack that updates the volatile ARM v4 registers in a programatically manner when debugging.
-/*
+
+
+
+
+bool disableMessage = false;
+
+#define C_CORE
+
 #define UPDATE_OLD_myregs \
 		   if (debugger_last) { \
 			   sprintf(oldbuffer,"%08x", armState ? myregs[15].I - 4 : myregs[15].I - 4); \
 			   for (xxx=0; xxx<18; xxx++){ \
 				   oldmyregs[xxx]=myregs[xxx].I; \
 			   } \
-		   }
-*/
-
-//coto: removed because the ARM core does that natively (and would waste cycles to emulate)
-/*
-#define ARM_PREFETCH \
-  {\
-    cpuPrefetch[0] = CPUReadMemoryQuick(armNextPC);\
-    cpuPrefetch[1] = CPUReadMemoryQuick(armNextPC+4);\
-  }
-
-#define THUMB_PREFETCH \
-  {\
-    cpuPrefetch[0] = CPUReadHalfWordQuick(armNextPC);\
-    cpuPrefetch[1] = CPUReadHalfWordQuick(armNextPC+2);\
-  }
-
-#define ARM_PREFETCH_NEXT \
-  cpuPrefetch[1] = CPUReadMemoryQuick(armNextPC+4);
-
-#define THUMB_PREFETCH_NEXT\
-  cpuPrefetch[1] = CPUReadHalfWordQuick(armNextPC+2);
-*/
+		   } 
 
 
-
-
+#ifdef C_CORE
 #define NEG(i) ((i) >> 31)
 #define POS(i) ((~(i)) >> 31)
 #define ADDCARRY(a, b, c) \
@@ -97,7 +46,6 @@
 #define SUBOVERFLOW(a, b, c)\
   V_FLAG = ((NEG(a) & POS(b) & POS(c)) |\
             (POS(a) & NEG(b) & NEG(c))) ? true : false;
-			
 #define ADD_RD_RS_RN \
    {\
      u32 lhs = myregs[source].I;\
@@ -263,6 +211,660 @@
      SUBCARRY(lhs, rhs, res);\
      SUBOVERFLOW(lhs, rhs, res);\
    }
+#else
+#ifdef __GNUC__
+#ifdef __POWERPC__
+            #define ADD_RD_RS_RN \
+            {										\
+                myregsister int Flags;					\
+                myregsister int Result;				\
+                asm volatile("addco. %0, %2, %3\n"	\
+                            "mcrxr cr1\n"			\
+                            "mfcr %1\n"				\
+                            : "=r" (Result), 		\
+                              "=r" (Flags)			\
+                            : "r" (myregs[source].I), 	\
+                              "r" (value)			\
+                            );						\
+                myregs[dest].I = Result;				\
+                Z_FLAG = (Flags >> 29) & 1;			\
+                N_FLAG = (Flags >> 31) & 1;			\
+                C_FLAG = (Flags >> 25) & 1;			\
+                V_FLAG = (Flags >> 26) & 1;			\
+            }
+            #define ADD_RD_RS_O3 ADD_RD_RS_RN
+            #define ADD_RN_O8(d) \
+            {\
+                myregsister int Flags;					\
+                myregsister int Result;				\
+                asm volatile("addco. %0, %2, %3\n"	\
+                            "mcrxr cr1\n"			\
+                            "mfcr %1\n"				\
+                            : "=r" (Result), 		\
+                              "=r" (Flags)			\
+                            : "r" (myregs[(d)].I), 	\
+                              "r" (opcode & 255)	\
+                            );						\
+                myregs[(d)].I = Result;				\
+                Z_FLAG = (Flags >> 29) & 1;			\
+                N_FLAG = (Flags >> 31) & 1;			\
+                C_FLAG = (Flags >> 25) & 1;			\
+                V_FLAG = (Flags >> 26) & 1;			\
+            }
+            #define CMN_RD_RS \
+            {\
+                myregsister int Flags;					\
+                myregsister int Result;				\
+                asm volatile("addco. %0, %2, %3\n"	\
+                            "mcrxr cr1\n"			\
+                            "mfcr %1\n"				\
+                            : "=r" (Result), 		\
+                              "=r" (Flags)			\
+                            : "r" (myregs[dest].I), 	\
+                              "r" (value)			\
+                            );						\
+                Z_FLAG = (Flags >> 29) & 1;			\
+                N_FLAG = (Flags >> 31) & 1;			\
+                C_FLAG = (Flags >> 25) & 1;			\
+                V_FLAG = (Flags >> 26) & 1;			\
+            }
+            #define ADC_RD_RS \
+            {\
+                myregsister int Flags;					\
+                myregsister int Result;				\
+                asm volatile("mtspr xer, %4\n"		\
+                             "addeo. %0, %2, %3\n"	\
+                             "mcrxr cr1\n"			\
+                             "mfcr	%1\n"			\
+                             : "=r" (Result),		\
+                               "=r" (Flags)			\
+                             : "r" (myregs[dest].I),	\
+                               "r" (value),			\
+                               "r" (C_FLAG << 29)	\
+                             );						\
+                myregs[dest].I = Result;				\
+                Z_FLAG = (Flags >> 29) & 1;			\
+                N_FLAG = (Flags >> 31) & 1;			\
+                C_FLAG = (Flags >> 25) & 1;			\
+                V_FLAG = (Flags >> 26) & 1;			\
+            }
+            #define SUB_RD_RS_RN \
+            {\
+                myregsister int Flags;					\
+                myregsister int Result;				\
+                asm volatile("subco. %0, %2, %3\n"	\
+                            "mcrxr cr1\n"			\
+                            "mfcr %1\n"				\
+                            : "=r" (Result), 		\
+                              "=r" (Flags)			\
+                            : "r" (myregs[source].I), 	\
+                              "r" (value)			\
+                            );						\
+                myregs[dest].I = Result;				\
+                Z_FLAG = (Flags >> 29) & 1;			\
+                N_FLAG = (Flags >> 31) & 1;			\
+                C_FLAG = (Flags >> 25) & 1;			\
+                V_FLAG = (Flags >> 26) & 1;			\
+            }
+            #define SUB_RD_RS_O3 SUB_RD_RS_RN
+            #define SUB_RN_O8(d) \
+            {\
+                myregsister int Flags;					\
+                myregsister int Result;				\
+                asm volatile("subco. %0, %2, %3\n"	\
+                            "mcrxr cr1\n"			\
+                            "mfcr %1\n"				\
+                            : "=r" (Result), 		\
+                              "=r" (Flags)			\
+                            : "r" (myregs[(d)].I), 	\
+                              "r" (opcode & 255)	\
+                            );						\
+                myregs[(d)].I = Result;				\
+                Z_FLAG = (Flags >> 29) & 1;			\
+                N_FLAG = (Flags >> 31) & 1;			\
+                C_FLAG = (Flags >> 25) & 1;			\
+                V_FLAG = (Flags >> 26) & 1;			\
+            }
+            #define CMP_RN_O8(d) \
+            {\
+                myregsister int Flags;					\
+                myregsister int Result;				\
+                asm volatile("subco. %0, %2, %3\n"	\
+                            "mcrxr cr1\n"			\
+                            "mfcr %1\n"				\
+                            : "=r" (Result), 		\
+                              "=r" (Flags)			\
+                            : "r" (myregs[(d)].I), 	\
+                              "r" (opcode & 255)	\
+                            );						\
+                Z_FLAG = (Flags >> 29) & 1;			\
+                N_FLAG = (Flags >> 31) & 1;			\
+                C_FLAG = (Flags >> 25) & 1;			\
+                V_FLAG = (Flags >> 26) & 1;			\
+            }
+            #define SBC_RD_RS \
+            {\
+                myregsister int Flags;					\
+                myregsister int Result;				\
+                asm volatile("mtspr xer, %4\n"		\
+                             "subfeo. %0, %3, %2\n"	\
+                             "mcrxr cr1\n"			\
+                             "mfcr	%1\n"			\
+                             : "=r" (Result),		\
+                               "=r" (Flags)			\
+                             : "r" (myregs[dest].I),	\
+                               "r" (value),			\
+                               "r" (C_FLAG << 29) 	\
+                             );						\
+                myregs[dest].I = Result;				\
+                Z_FLAG = (Flags >> 29) & 1;			\
+                N_FLAG = (Flags >> 31) & 1;			\
+                C_FLAG = (Flags >> 25) & 1;			\
+                V_FLAG = (Flags >> 26) & 1;			\
+            }
+            #define LSL_RD_RM_I5 \
+            {\
+                C_FLAG = (myregs[source].I >> (32 - shift)) & 1 ? true : false;\
+                value = myregs[source].I << shift;\
+            }
+            #define LSL_RD_RS \
+            {\
+                C_FLAG = (myregs[dest].I >> (32 - value)) & 1 ? true : false;\
+                value = myregs[dest].I << value;\
+            }
+            #define LSR_RD_RM_I5 \
+            {\
+                C_FLAG = (myregs[source].I >> (shift - 1)) & 1 ? true : false;\
+                value = myregs[source].I >> shift;\
+            }
+            #define LSR_RD_RS \
+            {\
+                C_FLAG = (myregs[dest].I >> (value - 1)) & 1 ? true : false;\
+                value = myregs[dest].I >> value;\
+            }
+            #define ASR_RD_RM_I5 \
+            {\
+                C_FLAG = ((s32)myregs[source].I >> (int)(shift - 1)) & 1 ? true : false;\
+                value = (s32)myregs[source].I >> (int)shift;\
+            }
+            #define ASR_RD_RS \
+            {\
+                C_FLAG = ((s32)myregs[dest].I >> (int)(value - 1)) & 1 ? true : false;\
+                value = (s32)myregs[dest].I >> (int)value;\
+            }
+            #define ROR_RD_RS \
+            {\
+                C_FLAG = (myregs[dest].I >> (value - 1)) & 1 ? true : false;\
+                value = ((myregs[dest].I << (32 - value)) |\
+                        (myregs[dest].I >> value));\
+            }
+            #define NEG_RD_RS \
+            {\
+                myregsister int Flags;					\
+                myregsister int Result;				\
+                asm volatile("subfco. %0, %2, %3\n"	\
+                            "mcrxr cr1\n"			\
+                            "mfcr %1\n"				\
+                            : "=r" (Result), 		\
+                              "=r" (Flags)			\
+                            : "r" (myregs[source].I), 	\
+                              "r" (0)				\
+                            );						\
+                myregs[dest].I = Result;				\
+                Z_FLAG = (Flags >> 29) & 1;			\
+                N_FLAG = (Flags >> 31) & 1;			\
+                C_FLAG = (Flags >> 25) & 1;			\
+                V_FLAG = (Flags >> 26) & 1;			\
+            }
+            #define CMP_RD_RS \
+            {\
+                myregsister int Flags;					\
+                myregsister int Result;				\
+                asm volatile("subco. %0, %2, %3\n"	\
+                            "mcrxr cr1\n"			\
+                            "mfcr %1\n"				\
+                            : "=r" (Result), 		\
+                              "=r" (Flags)			\
+                            : "r" (myregs[dest].I), 	\
+                              "r" (value)			\
+                            );						\
+                Z_FLAG = (Flags >> 29) & 1;			\
+                N_FLAG = (Flags >> 31) & 1;			\
+                C_FLAG = (Flags >> 25) & 1;			\
+                V_FLAG = (Flags >> 26) & 1;			\
+            }
+#else
+#define ADD_RD_RS_RN \
+     asm ("add %1, %%ebx;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setcb C_FLAG;"\
+          "setob V_FLAG;"\
+          : "=b" (myregs[dest].I)\
+          : "r" (value), "b" (myregs[source].I));
+#define ADD_RD_RS_O3 \
+     asm ("add %1, %%ebx;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setcb C_FLAG;"\
+          "setob V_FLAG;"\
+          : "=b" (myregs[dest].I)\
+          : "r" (value), "b" (myregs[source].I));
+#define ADD_RN_O8(d) \
+     asm ("add %1, %%ebx;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setcb C_FLAG;"\
+          "setob V_FLAG;"\
+          : "=b" (myregs[(d)].I)\
+          : "r" (opcode & 255), "b" (myregs[(d)].I));
+#define CMN_RD_RS \
+     asm ("add %0, %1;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setcb C_FLAG;"\
+          "setob V_FLAG;"\
+          : \
+          : "r" (value), "r" (myregs[dest].I):"1");
+#define ADC_RD_RS \
+     asm ("bt $0, C_FLAG;"\
+          "adc %1, %%ebx;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setcb C_FLAG;"\
+          "setob V_FLAG;"\
+          : "=b" (myregs[dest].I)\
+          : "r" (value), "b" (myregs[dest].I));
+#define SUB_RD_RS_RN \
+     asm ("sub %1, %%ebx;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setncb C_FLAG;"\
+          "setob V_FLAG;"\
+          : "=b" (myregs[dest].I)\
+          : "r" (value), "b" (myregs[source].I));
+#define SUB_RD_RS_O3 \
+     asm ("sub %1, %%ebx;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setncb C_FLAG;"\
+          "setob V_FLAG;"\
+          : "=b" (myregs[dest].I)\
+          : "r" (value), "b" (myregs[source].I));
+#define SUB_RN_O8(d) \
+     asm ("sub %1, %%ebx;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setncb C_FLAG;"\
+          "setob V_FLAG;"\
+          : "=b" (myregs[(d)].I)\
+          : "r" (opcode & 255), "b" (myregs[(d)].I));
+#define CMP_RN_O8(d) \
+     asm ("sub %0, %1;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setncb C_FLAG;"\
+          "setob V_FLAG;"\
+          : \
+          : "r" (opcode & 255), "r" (myregs[(d)].I) : "1");
+#define SBC_RD_RS \
+     asm volatile ("bt $0, C_FLAG;"\
+                   "cmc;"\
+                   "sbb %1, %%ebx;"\
+                   "setsb N_FLAG;"\
+                   "setzb Z_FLAG;"\
+                   "setncb C_FLAG;"\
+                   "setob V_FLAG;"\
+                   : "=b" (myregs[dest].I)\
+                   : "r" (value), "b" (myregs[dest].I) : "cc", "memory");
+#define LSL_RD_RM_I5 \
+       asm ("shl %%cl, %%eax;"\
+            "setcb C_FLAG;"\
+            : "=a" (value)\
+            : "a" (myregs[source].I), "c" (shift));
+#define LSL_RD_RS \
+         asm ("shl %%cl, %%eax;"\
+              "setcb C_FLAG;"\
+              : "=a" (value)\
+              : "a" (myregs[dest].I), "c" (value));
+#define LSR_RD_RM_I5 \
+       asm ("shr %%cl, %%eax;"\
+            "setcb C_FLAG;"\
+            : "=a" (value)\
+            : "a" (myregs[source].I), "c" (shift));
+#define LSR_RD_RS \
+         asm ("shr %%cl, %%eax;"\
+              "setcb C_FLAG;"\
+              : "=a" (value)\
+              : "a" (myregs[dest].I), "c" (value));
+#define ASR_RD_RM_I5 \
+     asm ("sar %%cl, %%eax;"\
+          "setcb C_FLAG;"\
+          : "=a" (value)\
+          : "a" (myregs[source].I), "c" (shift));
+#define ASR_RD_RS \
+         asm ("sar %%cl, %%eax;"\
+              "setcb C_FLAG;"\
+              : "=a" (value)\
+              : "a" (myregs[dest].I), "c" (value));
+#define ROR_RD_RS \
+         asm ("ror %%cl, %%eax;"\
+              "setcb C_FLAG;"\
+              : "=a" (value)\
+              : "a" (myregs[dest].I), "c" (value));
+#define NEG_RD_RS \
+     asm ("neg %%ebx;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setncb C_FLAG;"\
+          "setob V_FLAG;"\
+          : "=b" (myregs[dest].I)\
+          : "b" (myregs[source].I));
+#define CMP_RD_RS \
+     asm ("sub %0, %1;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setncb C_FLAG;"\
+          "setob V_FLAG;"\
+          : \
+          : "r" (value), "r" (myregs[dest].I):"1");
+#endif
+#else
+#define ADD_RD_RS_RN \
+   {\
+     __asm mov eax, source\
+     __asm mov ebx, dword ptr [OFFSET myregs+4*eax]\
+     __asm add ebx, value\
+     __asm mov eax, dest\
+     __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+     __asm sets byte ptr N_FLAG\
+     __asm setz byte ptr Z_FLAG\
+     __asm setc byte ptr C_FLAG\
+     __asm seto byte ptr V_FLAG\
+   }
+#define ADD_RD_RS_O3 \
+   {\
+     __asm mov eax, source\
+     __asm mov ebx, dword ptr [OFFSET myregs+4*eax]\
+     __asm add ebx, value\
+     __asm mov eax, dest\
+     __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+     __asm sets byte ptr N_FLAG\
+     __asm setz byte ptr Z_FLAG\
+     __asm setc byte ptr C_FLAG\
+     __asm seto byte ptr V_FLAG\
+   }
+#define ADD_RN_O8(d) \
+   {\
+     __asm mov ebx, opcode\
+     __asm and ebx, 255\
+     __asm add dword ptr [OFFSET myregs+4*(d)], ebx\
+     __asm sets byte ptr N_FLAG\
+     __asm setz byte ptr Z_FLAG\
+     __asm setc byte ptr C_FLAG\
+     __asm seto byte ptr V_FLAG\
+   }
+#define CMN_RD_RS \
+     {\
+       __asm mov eax, dest\
+       __asm mov ebx, dword ptr [OFFSET myregs+4*eax]\
+       __asm add ebx, value\
+       __asm sets byte ptr N_FLAG\
+       __asm setz byte ptr Z_FLAG\
+       __asm setc byte ptr C_FLAG\
+       __asm seto byte ptr V_FLAG\
+     }
+#define ADC_RD_RS \
+     {\
+       __asm mov ebx, dest\
+       __asm mov ebx, dword ptr [OFFSET myregs+4*ebx]\
+       __asm bt word ptr C_FLAG, 0\
+       __asm adc ebx, value\
+       __asm mov eax, dest\
+       __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+       __asm sets byte ptr N_FLAG\
+       __asm setz byte ptr Z_FLAG\
+       __asm setc byte ptr C_FLAG\
+       __asm seto byte ptr V_FLAG\
+     }
+#define SUB_RD_RS_RN \
+   {\
+     __asm mov eax, source\
+     __asm mov ebx, dword ptr [OFFSET myregs+4*eax]\
+     __asm sub ebx, value\
+     __asm mov eax, dest\
+     __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+     __asm sets byte ptr N_FLAG\
+     __asm setz byte ptr Z_FLAG\
+     __asm setnc byte ptr C_FLAG\
+     __asm seto byte ptr V_FLAG\
+   }
+#define SUB_RD_RS_O3 \
+   {\
+     __asm mov eax, source\
+     __asm mov ebx, dword ptr [OFFSET myregs+4*eax]\
+     __asm sub ebx, value\
+     __asm mov eax, dest\
+     __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+     __asm sets byte ptr N_FLAG\
+     __asm setz byte ptr Z_FLAG\
+     __asm setnc byte ptr C_FLAG\
+     __asm seto byte ptr V_FLAG\
+   }
+#define SUB_RN_O8(d) \
+   {\
+     __asm mov ebx, opcode\
+     __asm and ebx, 255\
+     __asm sub dword ptr [OFFSET myregs + 4*(d)], ebx\
+     __asm sets byte ptr N_FLAG\
+     __asm setz byte ptr Z_FLAG\
+     __asm setnc byte ptr C_FLAG\
+     __asm seto byte ptr V_FLAG\
+   }
+#define CMP_RN_O8(d) \
+   {\
+     __asm mov eax, dword ptr [OFFSET myregs+4*(d)]\
+     __asm mov ebx, opcode\
+     __asm and ebx, 255\
+     __asm sub eax, ebx\
+     __asm sets byte ptr N_FLAG\
+     __asm setz byte ptr Z_FLAG\
+     __asm setnc byte ptr C_FLAG\
+     __asm seto byte ptr V_FLAG\
+   }
+#define SBC_RD_RS \
+     {\
+       __asm mov ebx, dest\
+       __asm mov ebx, dword ptr [OFFSET myregs + 4*ebx]\
+       __asm mov eax, value\
+       __asm bt word ptr C_FLAG, 0\
+       __asm cmc\
+       __asm sbb ebx, eax\
+       __asm mov eax, dest\
+       __asm mov dword ptr [OFFSET myregs + 4*eax], ebx\
+       __asm sets byte ptr N_FLAG\
+       __asm setz byte ptr Z_FLAG\
+       __asm setnc byte ptr C_FLAG\
+       __asm seto byte ptr V_FLAG\
+     }
+#define LSL_RD_RM_I5 \
+     {\
+       __asm mov eax, source\
+       __asm mov eax, dword ptr [OFFSET myregs + 4 * eax]\
+       __asm mov cl, byte ptr shift\
+       __asm shl eax, cl\
+       __asm mov value, eax\
+       __asm setc byte ptr C_FLAG\
+     }
+#define LSL_RD_RS \
+         {\
+           __asm mov eax, dest\
+           __asm mov eax, dword ptr [OFFSET myregs + 4 * eax]\
+           __asm mov cl, byte ptr value\
+           __asm shl eax, cl\
+           __asm mov value, eax\
+           __asm setc byte ptr C_FLAG\
+         }
+#define LSR_RD_RM_I5 \
+     {\
+       __asm mov eax, source\
+       __asm mov eax, dword ptr [OFFSET myregs + 4 * eax]\
+       __asm mov cl, byte ptr shift\
+       __asm shr eax, cl\
+       __asm mov value, eax\
+       __asm setc byte ptr C_FLAG\
+     }
+#define LSR_RD_RS \
+         {\
+           __asm mov eax, dest\
+           __asm mov eax, dword ptr [OFFSET myregs + 4 * eax]\
+           __asm mov cl, byte ptr value\
+           __asm shr eax, cl\
+           __asm mov value, eax\
+           __asm setc byte ptr C_FLAG\
+         }
+#define ASR_RD_RM_I5 \
+     {\
+       __asm mov eax, source\
+       __asm mov eax, dword ptr [OFFSET myregs + 4*eax]\
+       __asm mov cl, byte ptr shift\
+       __asm sar eax, cl\
+       __asm mov value, eax\
+       __asm setc byte ptr C_FLAG\
+     }
+#define ASR_RD_RS \
+         {\
+           __asm mov eax, dest\
+           __asm mov eax, dword ptr [OFFSET myregs + 4*eax]\
+           __asm mov cl, byte ptr value\
+           __asm sar eax, cl\
+           __asm mov value, eax\
+           __asm setc byte ptr C_FLAG\
+         }
+#define ROR_RD_RS \
+         {\
+           __asm mov eax, dest\
+           __asm mov eax, dword ptr [OFFSET myregs + 4*eax]\
+           __asm mov cl, byte ptr value\
+           __asm ror eax, cl\
+           __asm mov value, eax\
+           __asm setc byte ptr C_FLAG\
+         }
+#define NEG_RD_RS \
+     {\
+       __asm mov ebx, source\
+       __asm mov ebx, dword ptr [OFFSET myregs+4*ebx]\
+       __asm neg ebx\
+       __asm mov eax, dest\
+       __asm mov dword ptr [OFFSET myregs+4*eax],ebx\
+       __asm sets byte ptr N_FLAG\
+       __asm setz byte ptr Z_FLAG\
+       __asm setnc byte ptr C_FLAG\
+       __asm seto byte ptr V_FLAG\
+     }
+#define CMP_RD_RS \
+     {\
+       __asm mov eax, dest\
+       __asm mov ebx, dword ptr [OFFSET myregs+4*eax]\
+       __asm sub ebx, value\
+       __asm sets byte ptr N_FLAG\
+       __asm setz byte ptr Z_FLAG\
+       __asm setnc byte ptr C_FLAG\
+       __asm seto byte ptr V_FLAG\
+     }
+#endif
+#endif
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#ifdef BKPT_SUPPORT
+#define CONSOLE_OUTPUT(a,b) \
+    extern void (*dbgOutput)(char *, u32);\
+    if((opcode == 0xe0000000) && (myregs[0].I == 0xC0DED00D)) {\
+      dbgOutput((a), (b));\
+    }
+#else
+#define CONSOLE_OUTPUT(a,b)
+#endif
 
 #define OP_AND \
       myregs[dest].I = myregs[(opcode>>16)&15].I & value;\
@@ -284,12 +886,27 @@
       N_FLAG = (myregs[dest].I & 0x80000000) ? true : false;\
       Z_FLAG = (myregs[dest].I) ? false : true;\
       C_FLAG = C_OUT;
-
+//#ifdef C_CORE
+#define NEG(i) ((i) >> 31)
+#define POS(i) ((~(i)) >> 31)
+#define ADDCARRY(a, b, c) \
+  C_FLAG = ((NEG(a) & NEG(b)) |\
+            (NEG(a) & POS(c)) |\
+            (NEG(b) & POS(c))) ? true : false;
+#define ADDOVERFLOW(a, b, c) \
+  V_FLAG = ((NEG(a) & NEG(b) & POS(c)) |\
+            (POS(a) & POS(b) & NEG(c))) ? true : false;
+#define SUBCARRY(a, b, c) \
+  C_FLAG = ((NEG(a) & POS(b)) |\
+            (NEG(a) & POS(c)) |\
+            (POS(b) & POS(c))) ? true : false;
+#define SUBOVERFLOW(a, b, c)\
+  V_FLAG = ((NEG(a) & POS(b) & POS(c)) |\
+            (POS(a) & NEG(b) & NEG(c))) ? true : false;
 #define OP_SUB \
     {\
       myregs[dest].I = myregs[base].I - value;\
     }
-	
 #define OP_SUBS \
    {\
      u32 lhs = myregs[base].I;\
@@ -403,14 +1020,12 @@
      C_OUT = (v >> (32 - shift)) & 1 ? true : false;\
      value = v << shift;\
    }
-
 #define LOGICAL_LSR_myregs \
    {\
      u32 v = myregs[opcode & 0x0f].I;\
      C_OUT = (v >> (shift - 1)) & 1 ? true : false;\
      value = v >> shift;\
    }
-
 #define LOGICAL_ASR_myregs \
    {\
      u32 v = myregs[opcode & 0x0f].I;\
@@ -490,6 +1105,757 @@
      value = ((value >> 1) |\
               (shift << 31));\
    }
+//#else
+/*#ifdef __GNUC__
+        #ifdef __POWERPC__
+            #define OP_SUB \
+                {\
+                myregs[dest].I = myregs[base].I - value;\
+                }
+            #define OP_SUBS \
+            {\
+                myregsister int Flags;                             \
+                myregsister int Result;                            \
+                asm volatile("subco. %0, %2, %3\n"              \
+                            "mcrxr cr1\n"                       \
+                            "mfcr %1\n"                         \
+                            : "=r" (Result),                    \
+                              "=r" (Flags)                      \
+                            : "r" (myregs[base].I),                \
+                              "r" (value)                       \
+                            );                                  \
+                myregs[dest].I = Result;                           \
+                Z_FLAG = (Flags >> 29) & 1;                     \
+                N_FLAG = (Flags >> 31) & 1;                     \
+                C_FLAG = (Flags >> 25) & 1;                     \
+                V_FLAG = (Flags >> 26) & 1;                     \
+            }
+            #define OP_RSB \
+                {\
+                myregs[dest].I = value - myregs[base].I;\
+                }
+            #define OP_RSBS \
+            {\
+                myregsister int Flags;                             \
+                myregsister int Result;                            \
+                asm volatile("subfco. %0, %2, %3\n"             \
+                            "mcrxr cr1\n"                       \
+                            "mfcr %1\n"                         \
+                            : "=r" (Result),                    \
+                              "=r" (Flags)                      \
+                            : "r" (myregs[base].I),                \
+                              "r" (value)                       \
+                            );                                  \
+                myregs[dest].I = Result;                           \
+                Z_FLAG = (Flags >> 29) & 1;                     \
+                N_FLAG = (Flags >> 31) & 1;                     \
+                C_FLAG = (Flags >> 25) & 1;                     \
+                V_FLAG = (Flags >> 26) & 1;                     \
+            }
+            #define OP_ADD \
+                {\
+                myregs[dest].I = myregs[base].I + value;\
+                }
+
+            #define OP_ADDS \
+            {\
+                myregsister int Flags;                             \
+                myregsister int Result;                            \
+                asm volatile("addco. %0, %2, %3\n"              \
+                            "mcrxr cr1\n"                       \
+                            "mfcr %1\n"                         \
+                            : "=r" (Result),                    \
+                              "=r" (Flags)                      \
+                            : "r" (myregs[base].I),                \
+                              "r" (value)                       \
+                            );                                  \
+                myregs[dest].I = Result;                           \
+                Z_FLAG = (Flags >> 29) & 1;                     \
+                N_FLAG = (Flags >> 31) & 1;                     \
+                C_FLAG = (Flags >> 25) & 1;                     \
+                V_FLAG = (Flags >> 26) & 1;                     \
+            }
+            #define OP_ADC \
+            {\
+                myregs[dest].I = myregs[base].I + value + (u32)C_FLAG;\
+            }
+            #define OP_ADCS \
+            {\
+                myregsister int Flags;                             \
+                myregsister int Result;                            \
+                asm volatile("mtspr xer, %4\n"                  \
+                             "addeo. %0, %2, %3\n"              \
+                             "mcrxr cr1\n"                      \
+                             "mfcr      %1\n"                   \
+                             : "=r" (Result),                   \
+                               "=r" (Flags)                     \
+                             : "r" (myregs[base].I),               \
+                               "r" (value),                     \
+                               "r" (C_FLAG << 29)               \
+                             );                                 \
+                myregs[dest].I = Result;                           \
+                Z_FLAG = (Flags >> 29) & 1;                     \
+                N_FLAG = (Flags >> 31) & 1;                     \
+                C_FLAG = (Flags >> 25) & 1;                     \
+                V_FLAG = (Flags >> 26) & 1;                     \
+            }
+            #define OP_SBC \
+                {\
+                myregs[dest].I = myregs[base].I - value - (C_FLAG^1);\
+                }
+            #define OP_SBCS \
+            {\
+                myregsister int Flags;                             \
+                myregsister int Result;                            \
+                asm volatile("mtspr xer, %4\n"                  \
+                             "subfeo. %0, %3, %2\n"             \
+                             "mcrxr cr1\n"                      \
+                             "mfcr      %1\n"                   \
+                             : "=r" (Result),                   \
+                               "=r" (Flags)                     \
+                             : "r" (myregs[base].I),               \
+                               "r" (value),                     \
+                               "r" (C_FLAG << 29)               \
+                             );                                 \
+                myregs[dest].I = Result;                           \
+                Z_FLAG = (Flags >> 29) & 1;                     \
+                N_FLAG = (Flags >> 31) & 1;                     \
+                C_FLAG = (Flags >> 25) & 1;                     \
+                V_FLAG = (Flags >> 26) & 1;                     \
+            }
+            #define OP_RSC \
+                {\
+                myregs[dest].I = value - myregs[base].I - (C_FLAG^1);\
+                }
+            #define OP_RSCS \
+            {\
+                myregsister int Flags;                             \
+                myregsister int Result;                            \
+                asm volatile("mtspr xer, %4\n"                  \
+                             "subfeo. %0, %2, %3\n"             \
+                             "mcrxr cr1\n"                      \
+                             "mfcr      %1\n"                   \
+                             : "=r" (Result),                   \
+                               "=r" (Flags)                     \
+                             : "r" (myregs[base].I),               \
+                               "r" (value),                     \
+                               "r" (C_FLAG << 29)               \
+                             );                                 \
+                myregs[dest].I = Result;                           \
+                Z_FLAG = (Flags >> 29) & 1;                     \
+                N_FLAG = (Flags >> 31) & 1;                     \
+                C_FLAG = (Flags >> 25) & 1;                     \
+                V_FLAG = (Flags >> 26) & 1;                     \
+            }
+            #define OP_CMP \
+            {\
+                myregsister int Flags;                             \
+                myregsister int Result;                            \
+                asm volatile("subco. %0, %2, %3\n"              \
+                            "mcrxr cr1\n"                       \
+                            "mfcr %1\n"                         \
+                            : "=r" (Result),                    \
+                              "=r" (Flags)                      \
+                            : "r" (myregs[base].I),                \
+                              "r" (value)                       \
+                            );                                  \
+                Z_FLAG = (Flags >> 29) & 1;                     \
+                N_FLAG = (Flags >> 31) & 1;                     \
+                C_FLAG = (Flags >> 25) & 1;                     \
+                V_FLAG = (Flags >> 26) & 1;                     \
+            }
+            #define OP_CMN \
+            {\
+                myregsister int Flags;                             \
+                myregsister int Result;                            \
+                asm volatile("addco. %0, %2, %3\n"              \
+                            "mcrxr cr1\n"                       \
+                            "mfcr %1\n"                         \
+                            : "=r" (Result),                    \
+                              "=r" (Flags)                      \
+                            : "r" (myregs[base].I),                \
+                              "r" (value)                       \
+                            );                                  \
+                Z_FLAG = (Flags >> 29) & 1;                     \
+                N_FLAG = (Flags >> 31) & 1;                     \
+                C_FLAG = (Flags >> 25) & 1;                     \
+                V_FLAG = (Flags >> 26) & 1;                     \
+            }
+            */
+            #define LOGICAL_LSL_myregs \
+            {\
+                u32 v = myregs[opcode & 0x0f].I;\
+                C_OUT = (v >> (32 - shift)) & 1 ? true : false;\
+                value = v << shift;\
+            }
+            #define LOGICAL_LSR_myregs \
+            {\
+                u32 v = myregs[opcode & 0x0f].I;\
+                C_OUT = (v >> (shift - 1)) & 1 ? true : false;\
+                value = v >> shift;\
+            }
+            #define LOGICAL_ASR_myregs \
+            {\
+                u32 v = myregs[opcode & 0x0f].I;\
+                C_OUT = ((s32)v >> (int)(shift - 1)) & 1 ? true : false;\
+                value = (s32)v >> (int)shift;\
+            }
+            #define LOGICAL_ROR_myregs \
+            {\
+                u32 v = myregs[opcode & 0x0f].I;\
+                C_OUT = (v >> (shift - 1)) & 1 ? true : false;\
+                value = ((v << (32 - shift)) |\
+                        (v >> shift));\
+            }
+            #define LOGICAL_RRX_myregs \
+            {\
+                u32 v = myregs[opcode & 0x0f].I;\
+                shift = (int)C_FLAG;\
+                C_OUT = (v  & 1) ? true : false;\
+                value = ((v >> 1) |\
+                        (shift << 31));\
+            }
+            #define LOGICAL_ROR_IMM \
+            {\
+                u32 v = opcode & 0xff;\
+                C_OUT = (v >> (shift - 1)) & 1 ? true : false;\
+                value = ((v << (32 - shift)) |\
+                        (v >> shift));\
+            }
+            #define ARITHMETIC_LSL_myregs \
+            {\
+                u32 v = myregs[opcode & 0x0f].I;\
+                value = v << shift;\
+            }
+            #define ARITHMETIC_LSR_myregs \
+            {\
+                u32 v = myregs[opcode & 0x0f].I;\
+                value = v >> shift;\
+            }
+            #define ARITHMETIC_ASR_myregs \
+            {\
+                u32 v = myregs[opcode & 0x0f].I;\
+                value = (s32)v >> (int)shift;\
+            }
+            #define ARITHMETIC_ROR_myregs \
+            {\
+                u32 v = myregs[opcode & 0x0f].I;\
+                value = ((v << (32 - shift)) |\
+                        (v >> shift));\
+            }
+            #define ARITHMETIC_RRX_myregs \
+            {\
+                u32 v = myregs[opcode & 0x0f].I;\
+                shift = (int)C_FLAG;\
+                value = ((v >> 1) |\
+                        (shift << 31));\
+            }
+            #define ARITHMETIC_ROR_IMM \
+            {\
+                u32 v = opcode & 0xff;\
+                value = ((v << (32 - shift)) |\
+                        (v >> shift));\
+            }
+            #define ROR_IMM_MSR \
+            {\
+                u32 v = opcode & 0xff;\
+                value = ((v << (32 - shift)) |\
+                        (v >> shift));\
+            }
+            #define ROR_VALUE \
+            {\
+                value = ((value << (32 - shift)) |\
+                        (value >> shift));\
+            }
+            #define RCR_VALUE \
+            {\
+                shift = (int)C_FLAG;\
+                value = ((value >> 1) |\
+                        (shift << 31));\
+            }
+/*#else
+#define OP_SUB \
+     asm ("sub %1, %%ebx;"\
+                  : "=b" (myregs[dest].I)\
+                  : "r" (value), "b" (myregs[base].I));
+
+#define OP_SUBS \
+     asm ("sub %1, %%ebx;"\
+          "setsb N_FLAG;"\
+          "setzb Z_FLAG;"\
+          "setncb C_FLAG;"\
+          "setob V_FLAG;"\
+                  : "=b" (myregs[dest].I)\
+                  : "r" (value), "b" (myregs[base].I));
+
+#define OP_RSB \
+            asm  ("sub %1, %%ebx;"\
+                 : "=b" (myregs[dest].I)\
+                 : "r" (myregs[base].I), "b" (value));
+
+#define OP_RSBS \
+            asm  ("sub %1, %%ebx;"\
+                  "setsb N_FLAG;"\
+                  "setzb Z_FLAG;"\
+                  "setncb C_FLAG;"\
+                  "setob V_FLAG;"\
+                 : "=b" (myregs[dest].I)\
+                 : "r" (myregs[base].I), "b" (value));
+
+#define OP_ADD \
+            asm  ("add %1, %%ebx;"\
+                 : "=b" (myregs[dest].I)\
+                 : "r" (value), "b" (myregs[base].I));
+
+#define OP_ADDS \
+            asm  ("add %1, %%ebx;"\
+                  "setsb N_FLAG;"\
+                  "setzb Z_FLAG;"\
+                  "setcb C_FLAG;"\
+                  "setob V_FLAG;"\
+                 : "=b" (myregs[dest].I)\
+                 : "r" (value), "b" (myregs[base].I));
+
+#define OP_ADC \
+            asm  ("bt $0, C_FLAG;"\
+                  "adc %1, %%ebx;"\
+                 : "=b" (myregs[dest].I)\
+                 : "r" (value), "b" (myregs[base].I));
+
+#define OP_ADCS \
+            asm  ("bt $0, C_FLAG;"\
+                  "adc %1, %%ebx;"\
+                  "setsb N_FLAG;"\
+                  "setzb Z_FLAG;"\
+                  "setcb C_FLAG;"\
+                  "setob V_FLAG;"\
+                 : "=b" (myregs[dest].I)\
+                 : "r" (value), "b" (myregs[base].I));
+
+#define OP_SBC \
+            asm  ("bt $0, C_FLAG;"\
+                  "cmc;"\
+                  "sbb %1, %%ebx;"\
+                 : "=b" (myregs[dest].I)\
+                 : "r" (value), "b" (myregs[base].I));
+
+#define OP_SBCS \
+            asm  ("bt $0, C_FLAG;"\
+                  "cmc;"\
+                  "sbb %1, %%ebx;"\
+                  "setsb N_FLAG;"\
+                  "setzb Z_FLAG;"\
+                  "setncb C_FLAG;"\
+                  "setob V_FLAG;"\
+                 : "=b" (myregs[dest].I)\
+                 : "r" (value), "b" (myregs[base].I));
+#define OP_RSC \
+            asm  ("bt $0, C_FLAG;"\
+                  "cmc;"\
+                  "sbb %1, %%ebx;"\
+                 : "=b" (myregs[dest].I)\
+                 : "r" (myregs[base].I), "b" (value));
+
+#define OP_RSCS \
+            asm  ("bt $0, C_FLAG;"\
+                  "cmc;"\
+                  "sbb %1, %%ebx;"\
+                  "setsb N_FLAG;"\
+                  "setzb Z_FLAG;"\
+                  "setncb C_FLAG;"\
+                  "setob V_FLAG;"\
+                 : "=b" (myregs[dest].I)\
+                 : "r" (myregs[base].I), "b" (value));
+#define OP_CMP \
+            asm  ("sub %0, %1;"\
+                  "setsb N_FLAG;"\
+                  "setzb Z_FLAG;"\
+                  "setncb C_FLAG;"\
+                  "setob V_FLAG;"\
+                 :\
+                 : "r" (value), "r" (myregs[base].I));
+
+#define OP_CMN \
+            asm  ("add %0, %1;"\
+                  "setsb N_FLAG;"\
+                  "setzb Z_FLAG;"\
+                  "setcb C_FLAG;"\
+                  "setob V_FLAG;"\
+                 : \
+                 : "r" (value), "r" (myregs[base].I));
+#define LOGICAL_LSL_myregs \
+       asm("shl %%cl, %%eax;"\
+           "setcb %%cl;"\
+           : "=a" (value), "=c" (C_OUT)\
+           : "a" (myregs[opcode & 0x0f].I), "c" (shift));
+
+#define LOGICAL_LSR_myregs \
+       asm("shr %%cl, %%eax;"\
+           "setcb %%cl;"\
+           : "=a" (value), "=c" (C_OUT)\
+           : "a" (myregs[opcode & 0x0f].I), "c" (shift));
+
+#define LOGICAL_ASR_myregs \
+       asm("sar %%cl, %%eax;"\
+           "setcb %%cl;"\
+           : "=a" (value), "=c" (C_OUT)\
+           : "a" (myregs[opcode & 0x0f].I), "c" (shift));
+
+#define LOGICAL_ROR_myregs \
+       asm("ror %%cl, %%eax;"\
+           "setcb %%cl;"\
+           : "=a" (value), "=c" (C_OUT)\
+           : "a" (myregs[opcode & 0x0f].I), "c" (shift));       
+
+#define LOGICAL_RRX_myregs \
+       asm("bt $0, C_FLAG;"\
+           "rcr $1, %%eax;"\
+           "setcb %%cl;"\
+           : "=a" (value), "=c" (C_OUT)\
+           : "a" (myregs[opcode & 0x0f].I));       
+
+#define LOGICAL_ROR_IMM \
+       asm("ror %%cl, %%eax;"\
+           "setcb %%cl;"\
+           : "=a" (value), "=c" (C_OUT)\
+           : "a" (opcode & 0xff), "c" (shift));
+#define ARITHMETIC_LSL_myregs \
+       asm("\
+             shl %%cl, %%eax;"\
+           : "=a" (value)\
+           : "a" (myregs[opcode & 0x0f].I), "c" (shift));
+
+#define ARITHMETIC_LSR_myregs \
+       asm("\
+             shr %%cl, %%eax;"\
+           : "=a" (value)\
+           : "a" (myregs[opcode & 0x0f].I), "c" (shift));
+
+#define ARITHMETIC_ASR_myregs \
+       asm("\
+             sar %%cl, %%eax;"\
+           : "=a" (value)\
+           : "a" (myregs[opcode & 0x0f].I), "c" (shift));
+
+#define ARITHMETIC_ROR_myregs \
+       asm("\
+             ror %%cl, %%eax;"\
+           : "=a" (value)\
+           : "a" (myregs[opcode & 0x0f].I), "c" (shift));       
+
+#define ARITHMETIC_RRX_myregs \
+       asm("\
+             bt $0, C_FLAG;\
+             rcr $1, %%eax;"\
+           : "=a" (value)\
+           : "a" (myregs[opcode & 0x0f].I));       
+
+#define ARITHMETIC_ROR_IMM \
+       asm("\
+             ror %%cl, %%eax;"\
+           : "=a" (value)\
+           : "a" (opcode & 0xff), "c" (shift));
+#define ROR_IMM_MSR \
+      asm ("ror %%cl, %%eax;"\
+           : "=a" (value)\
+           : "a" (opcode & 0xFF), "c" (shift));
+#define ROR_VALUE \
+      asm("ror %%cl, %0"\
+          : "=r" (value)\
+          : "r" (value), "c" (shift));
+#define RCR_VALUE \
+      asm("bt $0, C_FLAG;"\
+          "rcr $1, %0"\
+          : "=r" (value)\
+          : "r" (value));
+#endif
+#else
+#define OP_SUB \
+      {\
+        __asm mov ebx, base\
+        __asm mov ebx, dword ptr [OFFSET myregs+4*ebx]\
+        __asm sub ebx, value\
+        __asm mov eax, dest\
+        __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+      }
+
+#define OP_SUBS \
+      {\
+        __asm mov ebx, base\
+        __asm mov ebx, dword ptr [OFFSET myregs+4*ebx]\
+        __asm sub ebx, value\
+        __asm mov eax, dest\
+        __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+        __asm sets byte ptr N_FLAG\
+        __asm setz byte ptr Z_FLAG\
+        __asm setnc byte ptr C_FLAG\
+        __asm seto byte ptr V_FLAG\
+      }
+
+#define OP_RSB \
+      {\
+        __asm mov ebx, base\
+        __asm mov ebx, dword ptr [OFFSET myregs+4*ebx]\
+        __asm mov eax, value\
+        __asm sub eax, ebx\
+        __asm mov ebx, dest\
+        __asm mov dword ptr [OFFSET myregs+4*ebx], eax\
+      }
+
+#define OP_RSBS \
+      {\
+        __asm mov ebx, base\
+        __asm mov ebx, dword ptr [OFFSET myregs+4*ebx]\
+        __asm mov eax, value\
+        __asm sub eax, ebx\
+        __asm mov ebx, dest\
+        __asm mov dword ptr [OFFSET myregs+4*ebx], eax\
+        __asm sets byte ptr N_FLAG\
+        __asm setz byte ptr Z_FLAG\
+        __asm setnc byte ptr C_FLAG\
+        __asm seto byte ptr V_FLAG\
+      }
+
+#define OP_ADD \
+      {\
+        __asm mov ebx, base\
+        __asm mov ebx, dword ptr [OFFSET myregs+4*ebx]\
+        __asm add ebx, value\
+        __asm mov eax, dest\
+        __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+      }
+
+#define OP_ADDS \
+      {\
+        __asm mov ebx, base\
+        __asm mov ebx, dword ptr [OFFSET myregs+4*ebx]\
+        __asm add ebx, value\
+        __asm mov eax, dest\
+        __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+        __asm sets byte ptr N_FLAG\
+        __asm setz byte ptr Z_FLAG\
+        __asm setc byte ptr C_FLAG\
+        __asm seto byte ptr V_FLAG\
+      }
+
+#define OP_ADC \
+      {\
+        __asm mov ebx, base\
+        __asm mov ebx, dword ptr [OFFSET myregs+4*ebx]\
+        __asm bt word ptr C_FLAG, 0\
+        __asm adc ebx, value\
+        __asm mov eax, dest\
+        __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+      }
+
+#define OP_ADCS \
+      {\
+        __asm mov ebx, base\
+        __asm mov ebx, dword ptr [OFFSET myregs+4*ebx]\
+        __asm bt word ptr C_FLAG, 0\
+        __asm adc ebx, value\
+        __asm mov eax, dest\
+        __asm mov dword ptr [OFFSET myregs+4*eax], ebx\
+        __asm sets byte ptr N_FLAG\
+        __asm setz byte ptr Z_FLAG\
+        __asm setc byte ptr C_FLAG\
+        __asm seto byte ptr V_FLAG\
+      }
+
+#define OP_SBC \
+      {\
+        __asm mov ebx, base\
+        __asm mov ebx, dword ptr [OFFSET myregs + 4*ebx]\
+        __asm mov eax, value\
+        __asm bt word ptr C_FLAG, 0\
+        __asm cmc\
+        __asm sbb ebx, eax\
+        __asm mov eax, dest\
+        __asm mov dword ptr [OFFSET myregs + 4*eax], ebx\
+      }
+
+#define OP_SBCS \
+      {\
+        __asm mov ebx, base\
+        __asm mov ebx, dword ptr [OFFSET myregs + 4*ebx]\
+        __asm mov eax, value\
+        __asm bt word ptr C_FLAG, 0\
+        __asm cmc\
+        __asm sbb ebx, eax\
+        __asm mov eax, dest\
+        __asm mov dword ptr [OFFSET myregs + 4*eax], ebx\
+        __asm sets byte ptr N_FLAG\
+        __asm setz byte ptr Z_FLAG\
+        __asm setnc byte ptr C_FLAG\
+        __asm seto byte ptr V_FLAG\
+      }
+#define OP_RSC \
+      {\
+        __asm mov ebx, value\
+        __asm mov eax, base\
+        __asm mov eax, dword ptr[OFFSET myregs + 4*eax]\
+        __asm bt word ptr C_FLAG, 0\
+        __asm cmc\
+        __asm sbb ebx, eax\
+        __asm mov eax, dest\
+        __asm mov dword ptr [OFFSET myregs + 4*eax], ebx\
+      }
+
+#define OP_RSCS \
+      {\
+        __asm mov ebx, value\
+        __asm mov eax, base\
+        __asm mov eax, dword ptr[OFFSET myregs + 4*eax]\
+        __asm bt word ptr C_FLAG, 0\
+        __asm cmc\
+        __asm sbb ebx, eax\
+        __asm mov eax, dest\
+        __asm mov dword ptr [OFFSET myregs + 4*eax], ebx\
+        __asm sets byte ptr N_FLAG\
+        __asm setz byte ptr Z_FLAG\
+        __asm setnc byte ptr C_FLAG\
+        __asm seto byte ptr V_FLAG\
+      }
+#define OP_CMP \
+     {\
+       __asm mov eax, base\
+       __asm mov ebx, dword ptr [OFFSET myregs+4*eax]\
+       __asm sub ebx, value\
+       __asm sets byte ptr N_FLAG\
+       __asm setz byte ptr Z_FLAG\
+       __asm setnc byte ptr C_FLAG\
+       __asm seto byte ptr V_FLAG\
+     }
+
+#define OP_CMN \
+     {\
+       __asm mov eax, base\
+       __asm mov ebx, dword ptr [OFFSET myregs+4*eax]\
+       __asm add ebx, value\
+       __asm sets byte ptr N_FLAG\
+       __asm setz byte ptr Z_FLAG\
+       __asm setc byte ptr C_FLAG\
+       __asm seto byte ptr V_FLAG\
+     }
+#define LOGICAL_LSL_myregs \
+        __asm mov eax, opcode\
+        __asm and eax, 0x0f\
+        __asm mov eax, dword ptr [OFFSET myregs + 4 * eax]\
+        __asm mov cl, byte ptr shift\
+        __asm shl eax, cl\
+        __asm mov value, eax\
+        __asm setc byte ptr C_OUT
+
+#define LOGICAL_LSR_myregs \
+        __asm mov eax, opcode\
+        __asm and eax, 0x0f\
+        __asm mov eax, dword ptr [OFFSET myregs + 4 * eax]\
+        __asm mov cl, byte ptr shift\
+        __asm shr eax, cl\
+        __asm mov value, eax\
+        __asm setc byte ptr C_OUT
+
+#define LOGICAL_ASR_myregs \
+        __asm mov eax, opcode\
+        __asm and eax, 0x0f\
+        __asm mov eax, dword ptr [OFFSET myregs + 4 * eax]\
+        __asm mov cl, byte ptr shift\
+        __asm sar eax, cl\
+        __asm mov value, eax\
+        __asm setc byte ptr C_OUT
+
+#define LOGICAL_ROR_myregs \
+        __asm mov eax, opcode\
+        __asm and eax, 0x0F\
+        __asm mov eax, dword ptr [OFFSET myregs + 4*eax]\
+        __asm mov cl, byte ptr shift\
+        __asm ror eax, cl\
+        __asm mov value, eax\
+        __asm setc byte ptr C_OUT
+
+#define LOGICAL_RRX_myregs \
+        __asm mov eax, opcode\
+        __asm and eax, 0x0F\
+        __asm mov eax, dword ptr [OFFSET myregs + 4*eax]\
+        __asm bt word ptr C_OUT, 0\
+        __asm rcr eax, 1\
+        __asm mov value, eax\
+        __asm setc byte ptr C_OUT
+
+#define LOGICAL_ROR_IMM \
+        __asm mov eax, opcode\
+        __asm and eax, 0xff\
+        __asm mov cl, byte ptr shift\
+        __asm ror eax, cl\
+        __asm mov value, eax\
+        __asm setc byte ptr C_OUT
+#define ARITHMETIC_LSL_myregs \
+        __asm mov eax, opcode\
+        __asm and eax, 0x0f\
+        __asm mov eax, dword ptr [OFFSET myregs + 4 * eax]\
+        __asm mov cl, byte ptr shift\
+        __asm shl eax, cl\
+        __asm mov value, eax
+
+#define ARITHMETIC_LSR_myregs \
+        __asm mov eax, opcode\
+        __asm and eax, 0x0f\
+        __asm mov eax, dword ptr [OFFSET myregs + 4 * eax]\
+        __asm mov cl, byte ptr shift\
+        __asm shr eax, cl\
+        __asm mov value, eax
+
+#define ARITHMETIC_ASR_myregs \
+        __asm mov eax, opcode\
+        __asm and eax, 0x0f\
+        __asm mov eax, dword ptr [OFFSET myregs + 4 * eax]\
+        __asm mov cl, byte ptr shift\
+        __asm sar eax, cl\
+        __asm mov value, eax
+
+#define ARITHMETIC_ROR_myregs \
+        __asm mov eax, opcode\
+        __asm and eax, 0x0F\
+        __asm mov eax, dword ptr [OFFSET myregs + 4*eax]\
+        __asm mov cl, byte ptr shift\
+        __asm ror eax, cl\
+        __asm mov value, eax
+
+#define ARITHMETIC_RRX_myregs \
+        __asm mov eax, opcode\
+        __asm and eax, 0x0F\
+        __asm mov eax, dword ptr [OFFSET myregs + 4*eax]\
+        __asm bt word ptr C_FLAG, 0\
+        __asm rcr eax, 1\
+        __asm mov value, eax
+
+#define ARITHMETIC_ROR_IMM \
+        __asm mov eax, opcode\
+        __asm and eax, 0xff\
+        __asm mov cl, byte ptr shift\
+        __asm ror eax, cl\
+        __asm mov value, eax
+#define ROR_IMM_MSR \
+      {\
+        __asm mov eax, opcode\
+        __asm and eax, 0xff\
+        __asm mov cl, byte ptr shift\
+        __asm ror eax, CL\
+        __asm mov value, eax\
+      }
+#define ROR_VALUE \
+      {\
+        __asm mov cl, byte ptr shift\
+        __asm ror dword ptr value, cl\
+      }
+#define RCR_VALUE \
+      {\
+        __asm mov cl, byte ptr shift\
+        __asm bt word ptr C_FLAG, 0\
+        __asm rcr dword ptr value, 1\
+      }
+#endif
+#endif*/
 
 #define OP_TST \
       u32 res = myregs[base].I & value;\
@@ -575,50 +1941,36 @@
   CASE_16(BASE+0xe0)\
   CASE_16(BASE+0xf0)
 
-//coto: almost a jump table ha
-
-//base+8:  OP Rd,Rb,Rm LSL #
-
-//base+10: OP Rd,Rb,Rm LSR # 
-
-//base+12: OP Rd,Rb,Rm ASR # 
-
-//base+14: OP Rd,Rb,Rm ROR #
-
-//base+1 : OP Rd,Rb,Rm LSL Rs
-
-//base+3 : OP Rd,Rb,Rm LSR Rs
-
-//base+5 : OP Rd,Rb,Rm ASR Rs
-
-//base+7 : OP Rd,Rb,Rm ROR Rs
-
 #define LOGICAL_DATA_OPCODE(OPCODE, OPCODE2, BASE) \
   case BASE: \
   case BASE+8:\
     {\
+      /* OP Rd,Rb,Rm LSL # */ \
       int base = (opcode >> 16) & 0x0F;\
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
       u32 value;\
-      \
+      \ 
       if(shift) {\
         LOGICAL_LSL_myregs\
       } else {\
         value = myregs[opcode & 0x0F].I;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
        if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       }\
-	  else {\
+ else {\
         OPCODE \
       }\
     }\
@@ -626,11 +1978,12 @@
   case BASE+2:\
   case BASE+10:\
     {\
+       /* OP Rd,Rb,Rm LSR # */ \
       int base = (opcode >> 16) & 0x0F;\
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         LOGICAL_LSR_myregs\
       } else {\
@@ -638,14 +1991,17 @@
         C_OUT = (myregs[opcode & 0x0F].I & 0x80000000) ? true : false;\
       }\
       \
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -655,11 +2011,12 @@
   case BASE+4:\
   case BASE+12:\
     {\
+       /* OP Rd,Rb,Rm ASR # */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         LOGICAL_ASR_myregs\
       } else {\
@@ -672,14 +2029,17 @@
         }                   \
       }\
       \
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
-		if(armState) {\
+/*todo*/\
+        if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -689,24 +2049,28 @@
   case BASE+6:\
   case BASE+14:\
     {\
+       /* OP Rd,Rb,Rm ROR # */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         LOGICAL_ROR_myregs\
       } else {\
         LOGICAL_RRX_myregs\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
-		if(armState) {\
+/*todo*/\
+        if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -715,12 +2079,12 @@
     break;\
   case BASE+1:\
     {\
-       \
+       /* OP Rd,Rb,Rm LSL Rs */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         if(shift == 32) {\
           value = 0;\
@@ -734,14 +2098,17 @@
       } else {\
         value = myregs[opcode & 0x0F].I;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -750,11 +2117,12 @@
     break;\
   case BASE+3:\
     {\
+       /* OP Rd,Rb,Rm LSR Rs */ \
       int base = (opcode >> 16) & 0x0F;\
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         if(shift == 32) {\
           value = 0;\
@@ -768,14 +2136,17 @@
       } else {\
         value = myregs[opcode & 0x0F].I;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -784,11 +2155,12 @@
     break;\
   case BASE+5:\
     {\
+       /* OP Rd,Rb,Rm ASR Rs */ \
       int base = (opcode >> 16) & 0x0F;\
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift < 32) {\
         if(shift) {\
           LOGICAL_ASR_myregs\
@@ -804,14 +2176,17 @@
           C_OUT = false;\
         }\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -820,11 +2195,12 @@
     break;\
   case BASE+7:\
     {\
+       /* OP Rd,Rb,Rm ROR Rs */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         shift &= 0x1f;\
         if(shift) {\
@@ -837,14 +2213,17 @@
         value = myregs[opcode & 0x0F].I;\
         C_OUT = (value & 0x80000000 ? true : false);\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -872,20 +2251,23 @@
       int base = (opcode >> 16) & 0x0F;\
       int dest = (opcode >> 12) & 0x0F;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         LOGICAL_ROR_IMM\
       } else {\
         value = opcode & 0xff;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -893,46 +2275,34 @@
     }\
     break;
 
-//coto: almost a jump table haha
 
-//base+8: 	OP Rd,Rb,Rm LSL #
-
-//base+10:  OP Rd,Rb,Rm LSR #
-
-//base+12:  OP Rd,Rb,Rm ASR #
-
-//base+14:  OP Rd,Rb,Rm ROR #
-
-//base+1:	OP Rd,Rb,Rm LSL Rs 
-
-//base+3:	OP Rd,Rb,Rm LSR Rs
-
-//base+5:	OP Rd,Rb,Rm ASR Rs
-
-//base+7:	OP Rd,Rb,Rm ROR Rs
 
 #define LOGICAL_DATA_OPCODE_WITHOUT_base(OPCODE, OPCODE2, BASE) \
   case BASE: \
   case BASE+8:\
     {\
+      /* OP Rd,Rb,Rm LSL # */ \
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       \
       if(shift) {\
         LOGICAL_LSL_myregs\
       } else {\
         value = myregs[opcode & 0x0F].I;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -942,10 +2312,11 @@
   case BASE+2:\
   case BASE+10:\
     {\
+       /* OP Rd,Rb,Rm LSR # */ \
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         LOGICAL_LSR_myregs\
       } else {\
@@ -953,14 +2324,17 @@
         C_OUT = (myregs[opcode & 0x0F].I & 0x80000000) ? true : false;\
       }\
       \
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -970,10 +2344,11 @@
   case BASE+4:\
   case BASE+12:\
     {\
+       /* OP Rd,Rb,Rm ASR # */\
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         LOGICAL_ASR_myregs\
       } else {\
@@ -986,14 +2361,17 @@
         }                   \
       }\
       \
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1003,23 +2381,27 @@
   case BASE+6:\
   case BASE+14:\
     {\
+       /* OP Rd,Rb,Rm ROR # */\
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         LOGICAL_ROR_myregs\
       } else {\
         LOGICAL_RRX_myregs\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1028,10 +2410,11 @@
     break;\
   case BASE+1:\
     {\
+       /* OP Rd,Rb,Rm LSL Rs */\
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         if(shift == 32) {\
           value = 0;\
@@ -1045,14 +2428,17 @@
       } else {\
         value = myregs[opcode & 0x0F].I;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1061,10 +2447,11 @@
     break;\
   case BASE+3:\
     {\
+       /* OP Rd,Rb,Rm LSR Rs */ \
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         if(shift == 32) {\
           value = 0;\
@@ -1078,14 +2465,17 @@
       } else {\
         value = myregs[opcode & 0x0F].I;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1094,10 +2484,11 @@
     break;\
   case BASE+5:\
     {\
+       /* OP Rd,Rb,Rm ASR Rs */ \
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift < 32) {\
         if(shift) {\
           LOGICAL_ASR_myregs\
@@ -1113,14 +2504,17 @@
           C_OUT = false;\
         }\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1129,10 +2523,11 @@
     break;\
   case BASE+7:\
     {\
+       /* OP Rd,Rb,Rm ROR Rs */\
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         shift &= 0x1f;\
         if(shift) {\
@@ -1145,14 +2540,17 @@
         value = myregs[opcode & 0x0F].I;\
         C_OUT = (value & 0x80000000 ? true : false);\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1179,20 +2577,23 @@
       int shift = (opcode & 0xF00) >> 7;\
       int dest = (opcode >> 12) & 0x0F;\
       bool C_OUT = C_FLAG;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         LOGICAL_ROR_IMM\
       } else {\
         value = opcode & 0xff;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1200,45 +2601,31 @@
     }\
     break;
 
-//coto: those should be jumptables :p
-
-//base+8: 	OP Rd,Rb,Rm LSL # 
-
-//base+10: 	OP Rd,Rb,Rm LSR #
-
-//base+12:	OP Rd,Rb,Rm ASR # 
-
-//base+14:	OP Rd,Rb,Rm ROR #
-
-//base+1:	OP Rd,Rb,Rm LSL Rs 
-
-//base+3:	OP Rd,Rb,Rm LSR Rs
-
-//base+5:	OP Rd,Rb,Rm ASR Rs
-
-//base+7:	OP Rd,Rb,Rm ROR Rs
-
 #define ARITHMETIC_DATA_OPCODE(OPCODE, OPCODE2, BASE) \
   case BASE:\
   case BASE+8:\
     {\
+      /* OP Rd,Rb,Rm LSL # */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         ARITHMETIC_LSL_myregs\
       } else {\
         value = myregs[opcode & 0x0F].I;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1248,23 +2635,27 @@
   case BASE+2:\
   case BASE+10:\
     {\
+      /* OP Rd,Rb,Rm LSR # */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         ARITHMETIC_LSR_myregs\
       } else {\
         value = 0;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1274,10 +2665,11 @@
   case BASE+4:\
   case BASE+12:\
     {\
+      /* OP Rd,Rb,Rm ASR # */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         ARITHMETIC_ASR_myregs\
       } else {\
@@ -1285,14 +2677,17 @@
           value = 0xFFFFFFFF;\
         } else value = 0;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1302,23 +2697,27 @@
   case BASE+6:\
   case BASE+14:\
     {\
+      /* OP Rd,Rb,Rm ROR # */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = (opcode >> 7) & 0x1F;\
       int dest = (opcode>>12) & 15;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
          ARITHMETIC_ROR_myregs\
       } else {\
          ARITHMETIC_RRX_myregs\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1327,10 +2726,11 @@
     break;\
   case BASE+1:\
     {\
+      /* OP Rd,Rb,Rm LSL Rs */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         if(shift == 32) {\
           value = 0;\
@@ -1340,14 +2740,17 @@
       } else {\
         value = myregs[opcode & 0x0F].I;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1356,10 +2759,11 @@
     break;\
   case BASE+3:\
     {\
+      /* OP Rd,Rb,Rm LSR Rs */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         if(shift == 32) {\
           value = 0;\
@@ -1369,14 +2773,17 @@
       } else {\
         value = myregs[opcode & 0x0F].I;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1385,10 +2792,11 @@
     break;\
   case BASE+5:\
     {\
+      /* OP Rd,Rb,Rm ASR Rs */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
-      u32 value;\
+      u32 value;\ 
       if(shift < 32) {\
         if(shift) {\
            ARITHMETIC_ASR_myregs\
@@ -1400,14 +2808,17 @@
           value = 0xFFFFFFFF;\
         } else value = 0;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1416,10 +2827,11 @@
     break;\
   case BASE+7:\
     {\
+      /* OP Rd,Rb,Rm ROR Rs */\
       int base = (opcode >> 16) & 0x0F;\
       int shift = myregs[(opcode >> 8)&15].B.B0;\
       int dest = (opcode>>12) & 15;\
-      u32 value;\
+      u32 value;\ 
       if(shift) {\
         shift &= 0x1f;\
         if(shift) {\
@@ -1430,14 +2842,17 @@
       } else {\
         value = myregs[opcode & 0x0F].I;\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1464,18 +2879,21 @@
       int shift = (opcode & 0xF00) >> 7;\
       int base = (opcode >> 16) & 0x0F;\
       int dest = (opcode >> 12) & 0x0F;\
-      u32 value;\
+      u32 value;\ 
       {\
         ARITHMETIC_ROR_IMM\
       }\
-      if(dest == 15) {\
+      if(dest == 15) {\ 
         OPCODE2\
+/*todo*/\
         if(armState) {\
           myregs[15].I &= 0xFFFFFFFC;\
-          myregs[15].I += 4;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 4;\ 
         } else {\
           myregs[15].I &= 0xFFFFFFFE;\
-          myregs[15].I += 2;\
+          //armNextPC = myregs[15].I;\
+          myregs[15].I += 2;\ 
         }\
       } else {\
         OPCODE \
@@ -1483,25 +2901,58 @@
     }\
     break;\
 
-//variables that are linked each frame context (as zero by the way)
-__attribute__((section(".dtcm")))
-int offset=0;
-__attribute__((section(".dtcm")))
-int base=0;
-__attribute__((section(".dtcm")))
-int dest=0;
-__attribute__((section(".dtcm")))
-u32 address=0;
-
-//this is nice apparently:
-//static global instance of actual armcore volatile registers (gbalive4ds 16 ARM regs->VBA myregs)
-
-__attribute__((section(".dtcm")))
-reg_pair * myregs = (reg_pair*)exRegs;
 
 
-void emuInstrARM(u32 opcode, u32 *R)
-{
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#ifdef directcpu
+void __attribute__ ((hot)) emuInstrARM(u32 opcode, s32 *R)
+#else
+inline void emuInstrARM(u32 opcode, s32 *R)
+#endif
+		{
 
 reg_pair* myregs = (reg_pair*)R;
 	
@@ -1569,7 +3020,7 @@ if(cond_res) {*/
   switch(((opcode>>16)&0xFF0) | ((opcode>>4)&0x0F)) {
     //LOGICAL_DATA_OPCODE_WITHOUT_base(OP_AND,  OP_AND, 0x000);
 	//LOGICAL_DATA_OPCODE_WITHOUT_base(OP_ANDS, OP_AND, 0x010); //ichfly
-  case 0x009: //ichfly
+  /*case 0x009: //ichfly
     {
       // MUL Rd, Rm, Rs
       int dest = (opcode >> 16) & 0x0F;
@@ -1593,19 +3044,18 @@ if(cond_res) {*/
       if(((s32)rs)<0)
         rs = ~rs;
     }
-    break;
+    break;*/
   case 0x00b:
   case 0x02b:
     {
       // STRH Rd, [Rn], -Rm
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-      
-	  offset = myregs[opcode & 0x0F].I;
-	  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = myregs[opcode & 0x0F].I;
+ 
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
       address -= offset;
       myregs[base].I = address;
     }
@@ -1615,13 +3065,12 @@ if(cond_res) {*/
     {
       // STRH Rd, [Rn], #-offset
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-      
-	  offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
-	  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
+ 
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
       address -= offset;
       myregs[base].I = address;
     }
@@ -1631,13 +3080,12 @@ if(cond_res) {*/
     {
       // STRH Rd, [Rn], Rm
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-      
-	  offset = myregs[opcode & 0x0F].I;
-	  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = myregs[opcode & 0x0F].I;
+ 
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
       address += offset;
       myregs[base].I = address;
     }
@@ -1647,12 +3095,12 @@ if(cond_res) {*/
     {
       // STRH Rd, [Rn], #offset
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-      offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
-	  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
+ 
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
       address += offset;
       myregs[base].I = address;
     }
@@ -1661,22 +3109,22 @@ if(cond_res) {*/
     {
       // STRH Rd, [Rn, -Rm]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - myregs[opcode & 0x0F].I;
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - myregs[opcode & 0x0F].I;
  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
     }
     break;
   case 0x12b:
     {
       // STRH Rd, [Rn, -Rm]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - myregs[opcode & 0x0F].I;
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - myregs[opcode & 0x0F].I;
  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
       myregs[base].I = address;
     }
     break;
@@ -1684,22 +3132,22 @@ if(cond_res) {*/
     {
       // STRH Rd, [Rn, -#offset]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
     }
     break;
   case 0x16b:
     {
       // STRH Rd, [Rn, -#offset]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
       myregs[base].I = address;
     }
     break;
@@ -1707,22 +3155,22 @@ if(cond_res) {*/
     {
       // STRH Rd, [Rn, Rm]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + myregs[opcode & 0x0F].I;
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + myregs[opcode & 0x0F].I;
  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
     }
     break;
   case 0x1ab:
     {
       // STRH Rd, [Rn, Rm]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + myregs[opcode & 0x0F].I;
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + myregs[opcode & 0x0F].I;
  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
       myregs[base].I = address;
     }
     break;
@@ -1730,22 +3178,22 @@ if(cond_res) {*/
     {
       // STRH Rd, [Rn, #offset]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
     }
     break;
   case 0x1eb:
     {
       // STRH Rd, [Rn, #offset]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
  
-      CPUWriteHalfWord(address, myregs[dest].W.W0);
+      CPUWriteHalfWordpu(address, myregs[dest].W.W0);
       myregs[base].I = address;
     }
     break;
@@ -1754,13 +3202,11 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn], -Rm
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-      
-	  offset = myregs[opcode & 0x0F].I;
-	  
-      myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = myregs[opcode & 0x0F].I;
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
       if(dest != base) {
         address -= offset;
         myregs[base].I = address;
@@ -1781,12 +3227,11 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn], #-offset
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
-	  
-	  myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
       if(dest != base) {
         address -= offset;
         myregs[base].I = address;
@@ -1807,12 +3252,11 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn], Rm
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = myregs[opcode & 0x0F].I;
-	  
-	  myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = myregs[opcode & 0x0F].I;
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
       if(dest != base) {
         address += offset;
         myregs[base].I = address;
@@ -1833,12 +3277,11 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn], #offset
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
-	  
-	  myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
       if(dest != base) {
         address += offset;
         myregs[base].I = address;
@@ -1858,10 +3301,10 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn, -Rm]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - myregs[opcode & 0x0F].I;
-      myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - myregs[opcode & 0x0F].I;
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -1877,10 +3320,10 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn, -Rm]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - myregs[opcode & 0x0F].I;
-      myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - myregs[opcode & 0x0F].I;
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -1898,10 +3341,10 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn, -#offset]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -1917,10 +3360,10 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn, -#offset]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -1938,10 +3381,10 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn, Rm]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + myregs[opcode & 0x0F].I;
-      myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + myregs[opcode & 0x0F].I;
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -1957,10 +3400,10 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn, Rm]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + myregs[opcode & 0x0F].I;
-      myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + myregs[opcode & 0x0F].I;
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -1978,10 +3421,10 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn, #offset]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -1997,10 +3440,10 @@ if(cond_res) {*/
     {
       // LDRH Rd, [Rn, #offset]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      myregs[dest].I = CPUReadHalfWord(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = CPUReadHalfWordrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -2019,12 +3462,11 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn], -Rm
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = myregs[opcode & 0x0F].I;
-	  
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
       if(dest != base) {
         address -= offset;
         myregs[base].I = address;
@@ -2045,12 +3487,11 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn], #-offset
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
-	  
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
       if(dest != base) {
         address -= offset;
         myregs[base].I = address;
@@ -2071,12 +3512,11 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn], Rm
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = myregs[opcode & 0x0F].I;
-	  
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
       if(dest != base) {
         address += offset;
         myregs[base].I = address;
@@ -2097,12 +3537,11 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn], #offset
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
-	  
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
       if(dest != base) {
         address += offset;
         myregs[base].I = address;
@@ -2121,11 +3560,11 @@ if(cond_res) {*/
   case 0x11d:
     {
       // LDRSB Rd, [Rn, -Rm]
-	  base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - myregs[opcode & 0x0F].I;
-      
-	  myregs[dest].I = (s8)CPUReadByte(address);
+ 
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -2141,11 +3580,10 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn, -Rm]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - myregs[opcode & 0x0F].I;
-      
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -2163,11 +3601,10 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn, -#offset]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -2183,11 +3620,10 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn, -#offset]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -2205,11 +3641,10 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn, Rm]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + myregs[opcode & 0x0F].I;
-      
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -2225,11 +3660,10 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn, Rm]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + myregs[opcode & 0x0F].I;
-      
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -2247,11 +3681,10 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn, #offset]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -2267,11 +3700,10 @@ if(cond_res) {*/
     {
       // LDRSB Rd, [Rn, #offset]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      
-	  myregs[dest].I = (s8)CPUReadByte(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = (s8)CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -2290,12 +3722,11 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn], -Rm
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = myregs[opcode & 0x0F].I;
-	  
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
       if(dest != base) {
         address -= offset;
         myregs[base].I = address;
@@ -2316,12 +3747,11 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn], #-offset
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
-	  
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
       if(dest != base) {
         address -= offset;
         myregs[base].I = address;
@@ -2342,12 +3772,11 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn], Rm
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = myregs[opcode & 0x0F].I;
-	  
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
       if(dest != base) {
         address += offset;
         myregs[base].I = address;
@@ -2368,12 +3797,11 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn], #offset
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I;
-	  offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
-	  
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I;
+      int offset = (opcode & 0x0F) | ((opcode >> 4) & 0xF0);
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
       if(dest != base) {
         address += offset;
         myregs[base].I = address;
@@ -2393,11 +3821,10 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn, -Rm]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - myregs[opcode & 0x0F].I;
-      
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -2413,11 +3840,10 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn, -Rm]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - myregs[opcode & 0x0F].I;
-      
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -2435,11 +3861,10 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn, -#offset]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -2455,11 +3880,10 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn, -#offset]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I - ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -2477,11 +3901,10 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn, Rm]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + myregs[opcode & 0x0F].I;
-      
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -2497,11 +3920,10 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn, Rm]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + myregs[opcode & 0x0F].I;
-      
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + myregs[opcode & 0x0F].I;
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -2519,11 +3941,10 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn, #offset]
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -2539,11 +3960,10 @@ if(cond_res) {*/
     {
       // LDRSH Rd, [Rn, #offset]!
  
-      base = (opcode >> 16) & 0x0F;
-      dest = (opcode >> 12) & 0x0F;
-      address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
-      
-	  myregs[dest].I = (s16)CPUReadHalfWordSigned(address);
+      int base = (opcode >> 16) & 0x0F;
+      int dest = (opcode >> 12) & 0x0F;
+      u32 address = myregs[base].I + ((opcode & 0x0F)|((opcode>>4)&0xF0));
+      myregs[dest].I = (s16)CPUReadHalfWordrealpuSigned(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -2559,7 +3979,7 @@ if(cond_res) {*/
     break;
     //LOGICAL_DATA_OPCODE_WITHOUT_base(OP_EOR,  OP_EOR, 0x020); //ichfly
     //LOGICAL_DATA_OPCODE_WITHOUT_base(OP_EORS, OP_EOR, 0x030);
-	case 0x029: //ichfly
+/*  case 0x029: //ichfly
     {
       // MLA Rd, Rm, Rs, Rn
  
@@ -2742,8 +4162,8 @@ if(cond_res) {*/
     {
       // SWP Rd, Rm, [Rn]
       u32 address = myregs[(opcode >> 16) & 15].I;
-      u32 temp = CPUReadMemory(address);
-      CPUWriteMemory(address, myregs[opcode&15].I);
+      u32 temp = CPUReadMemoryrealpu(address);
+      CPUWriteMemorypu(address, myregs[opcode&15].I);
       myregs[(opcode >> 12) & 15].I = temp;
  
     }
@@ -2771,7 +4191,7 @@ if(cond_res) {*/
       ////CPUUpdateFlags();
       if(!armState) { // this should not be allowed, but it seems to work
         //THUMB_PREFETCH;
-        myregs[15].I = myregs[15].I +2;//armNextPC + 2;
+        myregs[15].I = //armNextPC + 2;
       }
     }
     break;
@@ -2799,13 +4219,13 @@ if(cond_res) {*/
     // MRS Rd, SPSR
     // TODO: check if right instruction...
     myregs[(opcode >> 12) & 0x0F].I = myregs[17].I;
-    break;
+    break;*/
   case 0x149:
     {
       // SWPB Rd, Rm, [Rn]
-      address = myregs[(opcode >> 16) & 15].I;
-      u32 temp = CPUReadByte(address);
-      CPUWriteByte(address, myregs[opcode&15].B.B0);
+      u32 address = myregs[(opcode >> 16) & 15].I;
+      u32 temp = CPUReadByterealpu(address);
+      CPUWriteBytepu(address, myregs[opcode&15].B.B0);
       myregs[(opcode>>12)&15].I = temp;
  
     }
@@ -2932,13 +4352,11 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn], -#
  
-      offset = opcode & 0xFFF;
-	  
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteMemorypu(address, myregs[dest].I);
       myregs[base].I = address - offset;
  
     }
@@ -2949,12 +4367,11 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn], #
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteMemorypu(address, myregs[dest].I);
       myregs[base].I = address + offset;
  
     }
@@ -2963,12 +4380,11 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn, -#]
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      CPUWriteMemorypu(address, myregs[dest].I);
  
     }
     break;
@@ -2976,13 +4392,12 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn, -#]!
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[base].I = address;
-      CPUWriteMemory(address, myregs[dest].I);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[base].I = address;
+      CPUWriteMemorypu(address, myregs[dest].I);
  
     }
     break;
@@ -2990,12 +4405,11 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn, #]
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      CPUWriteMemorypu(address, myregs[dest].I);
  
     }
     break;
@@ -3003,13 +4417,12 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn, #]!
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[base].I = address;
-      CPUWriteMemory(address, myregs[dest].I);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[base].I = address;
+      CPUWriteMemorypu(address, myregs[dest].I);
  
     }
     break;
@@ -3017,12 +4430,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn], -#
  
-      offset = opcode & 0xFFF;
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I -= offset;
        
@@ -3038,12 +4450,11 @@ if(cond_res) {*/
     {
       // LDRT Rd, [Rn], -#
  
-      offset = opcode & 0xFFF;
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I -= offset;
        
@@ -3059,12 +4470,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn], #
  
-      offset = opcode & 0xFFF;
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I += offset;
        
@@ -3080,12 +4490,11 @@ if(cond_res) {*/
     {
       // LDRT Rd, [Rn], #
  
-      offset = opcode & 0xFFF;
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I += offset;
        
@@ -3101,12 +4510,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn, -#]
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -3120,12 +4528,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn, -#]!
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -3141,12 +4548,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn, #]
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -3160,12 +4566,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn, #]!
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -3183,12 +4588,11 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn], -#
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
       myregs[base].I = address - offset;
  
     }
@@ -3199,12 +4603,11 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn], #
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
       myregs[base].I = address + offset;
  
     }
@@ -3213,18 +4616,18 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn, -#]
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
+ 
     }
     break;
 	//ichfly hier entnommen
 
 
-  case 0x6c4:
+		    case 0x6c4:
   case 0x6cc:
     // T versions are the same
   case 0x6e4:
@@ -3233,19 +4636,17 @@ if(cond_res) {*/
       // STRB Rd, [Rn], Rm, ASR #
  
       int shift = (opcode >> 7) & 31;
-        
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
       myregs[base].I = address + offset;
  
     }
@@ -3265,12 +4666,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
       myregs[base].I = address + value;
  
     }
@@ -3280,12 +4679,11 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn, -Rm, LSL #]
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3295,13 +4693,11 @@ if(cond_res) {*/
       // STRB Rd, [Rn, -Rm, LSR #]
  
       int shift = (opcode >> 7) & 31;
-	  
-      offset = shift ? myregs[opcode & 15].I >> shift : 0;
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3311,19 +4707,17 @@ if(cond_res) {*/
       // STRB Rd, [Rn, -Rm, ASR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3339,12 +4733,11 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - value;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - value;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
+ 
     }
     break;
   case 0x760:
@@ -3352,13 +4745,12 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn, -Rm, LSL #]!
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[base].I = address;
-      CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[base].I = address;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3368,14 +4760,12 @@ if(cond_res) {*/
       // STRB Rd, [Rn, -Rm, LSR #]!
  
       int shift = (opcode >> 7) & 31;
-	  
-      offset = shift ? myregs[opcode & 15].I >> shift : 0;
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[base].I = address;      
-      CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[base].I = address;      
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3385,24 +4775,23 @@ if(cond_res) {*/
       // STRB Rd, [Rn, -Rm, ASR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[base].I = address;
-      CPUWriteByte(address, myregs[dest].B.B0);
-	
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[base].I = address;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
+ 
     }
     break;
-	
+
+
 	  case 0x766:
   case 0x76e:
     {
@@ -3415,13 +4804,11 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - value;
-      
-	  myregs[base].I = address;      
-      CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - value;
+      myregs[base].I = address;      
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3430,12 +4817,11 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn, Rm, LSL #]
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3445,13 +4831,11 @@ if(cond_res) {*/
       // STRB Rd, [Rn, Rm, LSR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3461,19 +4845,18 @@ if(cond_res) {*/
       // STRB Rd, [Rn, Rm, ASR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
+ 
     }
     break;
   case 0x7c6:
@@ -3488,12 +4871,11 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + value;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + value;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
+ 
     }
     break;
   case 0x7e0:
@@ -3501,13 +4883,12 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn, Rm, LSL #]!
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[base].I = address;
-      CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[base].I = address;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3517,14 +4898,12 @@ if(cond_res) {*/
       // STRB Rd, [Rn, Rm, LSR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[base].I = address;      
-      CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[base].I = address;      
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3534,20 +4913,18 @@ if(cond_res) {*/
       // STRB Rd, [Rn, Rm, ASR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[base].I = address;
-      CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[base].I = address;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -3563,13 +4940,12 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + value;
-      
-	  myregs[base].I = address;      
-      CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + value;
+      myregs[base].I = address;      
+      CPUWriteBytepu(address, myregs[dest].B.B0);
+ 
     }
     break;
   case 0x650:
@@ -3579,13 +4955,12 @@ if(cond_res) {*/
   case 0x678:
     {
       // LDRB Rd, [Rn], -Rm, LSL #
-	  
-	  offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadByte(address);
+ 
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address - offset;
        
@@ -3608,13 +4983,11 @@ if(cond_res) {*/
       // LDRB Rd, [Rn], -Rm, LSR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address - offset;
        
@@ -3625,6 +4998,7 @@ if(cond_res) {*/
         //ARM_PREFETCH;
          
       }
+ 
     }
     break;
   case 0x654:
@@ -3636,19 +5010,17 @@ if(cond_res) {*/
       // LDRB Rd, [Rn], -Rm, ASR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address - offset;
        
@@ -3659,6 +5031,7 @@ if(cond_res) {*/
         //ARM_PREFETCH;
          
       }
+ 
     }
     break;
   case 0x656:
@@ -3676,12 +5049,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address - value;
        
@@ -3692,6 +5063,7 @@ if(cond_res) {*/
         //ARM_PREFETCH;
          
       }
+ 
     }
     break;
   case 0x6d0:
@@ -3702,12 +5074,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn], Rm, LSL #
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address + offset;
        
@@ -3730,15 +5101,11 @@ if(cond_res) {*/
       // LDRB Rd, [Rn], Rm, LSR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  //int offset = shift ? myregs[opcode & 15].I >> shift : 0;
-      offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address + offset;
        
@@ -3761,19 +5128,17 @@ if(cond_res) {*/
       // LDRB Rd, [Rn], Rm, ASR #
  
       int shift = (opcode >> 7) & 31;
-      
+      int offset;
       if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address + offset;
        
@@ -3797,18 +5162,15 @@ if(cond_res) {*/
  
       int shift = (opcode >> 7) & 31;
       u32 value = myregs[opcode & 15].I;
-      
-	  if(shift) {
+      if(shift) {
         ROR_VALUE;
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address + value;
        
@@ -3827,12 +5189,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn, -Rm, LSL #]
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -3850,13 +5211,11 @@ if(cond_res) {*/
       // LDRB Rd, [Rn, -Rm, LSR #]
  
       int shift = (opcode >> 7) & 31;
-	  
-      offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -3874,19 +5233,17 @@ if(cond_res) {*/
       // LDRB Rd, [Rn, -Rm, ASR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -3910,12 +5267,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - value;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - value;
+      myregs[dest].I = CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -3932,12 +5287,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn, -Rm, LSL #]!
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -3957,13 +5311,11 @@ if(cond_res) {*/
       // LDRB Rd, [Rn, -Rm, LSR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;      
        
@@ -3983,20 +5335,17 @@ if(cond_res) {*/
       // LDRB Rd, [Rn, -Rm, ASR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -4005,6 +5354,7 @@ if(cond_res) {*/
         //armNextPC = myregs[15].I;
         myregs[15].I += 4;
         //ARM_PREFETCH;
+         
       }
  
     }
@@ -4021,12 +5371,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-		
-		dest = (opcode >> 12) & 15;
-		base = (opcode >> 16) & 15;
-		address = myregs[base].I - value;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - value;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;      
        
@@ -4045,12 +5393,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn, Rm, LSL #]
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4068,13 +5415,11 @@ if(cond_res) {*/
       // LDRB Rd, [Rn, Rm, LSR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4092,19 +5437,17 @@ if(cond_res) {*/
       // LDRB Rd, [Rn, Rm, ASR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4128,12 +5471,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + value;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + value;
+      myregs[dest].I = CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4150,12 +5491,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn, Rm, LSL #]!
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -4175,13 +5515,11 @@ if(cond_res) {*/
       // LDRB Rd, [Rn, Rm, LSR #]!
  
       int shift = (opcode >> 7) & 31;
-	  
-      offset = shift ? myregs[opcode & 15].I >> shift : 0;
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;      
        
@@ -4201,19 +5539,17 @@ if(cond_res) {*/
       // LDRB Rd, [Rn, Rm, ASR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -4239,12 +5575,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + value;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + value;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;      
        
@@ -4270,12 +5604,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + value;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + value;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -4295,12 +5627,11 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn], -Rm, LSL #
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
       myregs[base].I = address - offset;
  
     }
@@ -4314,13 +5645,11 @@ if(cond_res) {*/
       // STRB Rd, [Rn], -Rm, LSR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
       myregs[base].I = address - offset;
  
     }
@@ -4334,19 +5663,17 @@ if(cond_res) {*/
       // STRB Rd, [Rn], -Rm, ASR #
  
       int shift = (opcode >> 7) & 31;
-      
+      int offset;
       if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
       myregs[base].I = address - offset;
  
     }
@@ -4366,13 +5693,12 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
       myregs[base].I = address - value;
+ 
     }
     break;
   case 0x6c0:
@@ -4383,12 +5709,11 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn], Rm, LSL #
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
       myregs[base].I = address + offset;
  
     }
@@ -4402,13 +5727,11 @@ if(cond_res) {*/
       // STRB Rd, [Rn], Rm, LSR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
       myregs[base].I = address + offset;
  
     }
@@ -4422,13 +5745,11 @@ if(cond_res) {*/
       // LDR Rd, [Rn], Rm, LSR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address + offset;
        
@@ -4449,19 +5770,17 @@ if(cond_res) {*/
       // LDR Rd, [Rn], Rm, ASR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address + offset;
        
@@ -4488,12 +5807,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address + value;
        
@@ -4510,12 +5827,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn, -Rm, LSL #]
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4531,13 +5847,11 @@ if(cond_res) {*/
       // LDR Rd, [Rn, -Rm, LSR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4553,19 +5867,17 @@ if(cond_res) {*/
       // LDR Rd, [Rn, -Rm, ASR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4587,12 +5899,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - value;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - value;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4607,12 +5917,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn, -Rm, LSL #]!
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -4630,13 +5939,11 @@ if(cond_res) {*/
       // LDR Rd, [Rn, -Rm, LSR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address;      
        
@@ -4654,19 +5961,17 @@ if(cond_res) {*/
       // LDR Rd, [Rn, -Rm, ASR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -4676,8 +5981,7 @@ if(cond_res) {*/
         myregs[15].I += 4;
         //ARM_PREFETCH;
          
-      }     
-	  }
+      }     }
     break;
   case 0x736:
   case 0x73e:
@@ -4691,12 +5995,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - value;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - value;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address;      
        
@@ -4713,12 +6015,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn, Rm, LSL #]
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4734,13 +6035,11 @@ if(cond_res) {*/
       // LDR Rd, [Rn, Rm, LSR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4756,8 +6055,8 @@ if(cond_res) {*/
       // LDR Rd, [Rn, Rm, ASR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
@@ -4766,7 +6065,7 @@ if(cond_res) {*/
       int dest = (opcode >> 12) & 15;
       int base = (opcode >> 16) & 15;
       u32 address = myregs[base].I + offset;
-      myregs[dest].I = CPUReadMemory(address);
+      myregs[dest].I = CPUReadMemoryrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4788,12 +6087,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + value;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + value;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4808,12 +6105,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn, Rm, LSL #]!
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -4831,13 +6127,11 @@ if(cond_res) {*/
       // LDR Rd, [Rn, Rm, LSR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address;      
        
@@ -4855,19 +6149,17 @@ if(cond_res) {*/
       // LDR Rd, [Rn, Rm, ASR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -4883,13 +6175,12 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn, -#]!
  
-      offset = opcode & 0xFFF;
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[base].I = address;
-      CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[base].I = address;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -4897,12 +6188,11 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn, #]
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  CPUWriteByte(address, myregs[dest].B.B0);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      CPUWriteBytepu(address, myregs[dest].B.B0);
  
     }
     break;
@@ -4910,13 +6200,12 @@ if(cond_res) {*/
     {
       // STRB Rd, [Rn, #]!
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[base].I = address;
-      CPUWriteByte(address, myregs[dest].I);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[base].I = address;
+      CPUWriteBytepu(address, myregs[dest].I);
  
     }
     break;
@@ -4926,12 +6215,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn], -#
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I -= offset;
        
@@ -4950,12 +6238,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn], #
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I += offset;
        
@@ -4973,12 +6260,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn, -#]
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -4994,12 +6280,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn, -#]!
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -5017,12 +6302,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn, #]
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadByterealpu(address);
        
       if(dest == 15) {
         myregs[15].I &= 0xFFFFFFFC;
@@ -5038,12 +6322,11 @@ if(cond_res) {*/
     {
       // LDRB Rd, [Rn, #]!
  
-      offset = opcode & 0xFFF;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[dest].I = CPUReadByte(address);
+      int offset = opcode & 0xFFF;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[dest].I = CPUReadByterealpu(address);
       if(dest != base)
         myregs[base].I = address;
        
@@ -5065,12 +6348,11 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn], -Rm, LSL #
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteMemorypu(address, myregs[dest].I);
       myregs[base].I = address - offset;
  
     }
@@ -5084,13 +6366,11 @@ if(cond_res) {*/
       // STR Rd, [Rn], -Rm, LSR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteMemorypu(address, myregs[dest].I);
       myregs[base].I = address - offset;
  
     }
@@ -5104,19 +6384,17 @@ if(cond_res) {*/
       // STR Rd, [Rn], -Rm, ASR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteMemorypu(address, myregs[dest].I);
       myregs[base].I = address - offset;
  
     }
@@ -5136,12 +6414,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteMemorypu(address, myregs[dest].I);
       myregs[base].I = address - value;
  
     }
@@ -5154,12 +6430,11 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn], Rm, LSL #
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteMemorypu(address, myregs[dest].I);
       myregs[base].I = address + offset;
  
     }
@@ -5173,13 +6448,11 @@ if(cond_res) {*/
       // STR Rd, [Rn], Rm, LSR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteMemorypu(address, myregs[dest].I);
       myregs[base].I = address + offset;
  
     }
@@ -5193,20 +6466,19 @@ if(cond_res) {*/
       // STR Rd, [Rn], Rm, ASR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteMemorypu(address, myregs[dest].I);
       myregs[base].I = address + offset;
+ 
     }
     break;
   case 0x686:
@@ -5224,13 +6496,12 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      CPUWriteMemorypu(address, myregs[dest].I);
       myregs[base].I = address + value;
+ 
     }
     break;
   case 0x700:
@@ -5238,12 +6509,12 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn, -Rm, LSL #]
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x702:
@@ -5252,13 +6523,12 @@ if(cond_res) {*/
       // STR Rd, [Rn, -Rm, LSR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x704:
@@ -5267,19 +6537,18 @@ if(cond_res) {*/
       // STR Rd, [Rn, -Rm, ASR #]
  
       int shift = (opcode >> 7) & 31;
-      
+      int offset;
       if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x706:
@@ -5294,12 +6563,11 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - value;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - value;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x720:
@@ -5307,13 +6575,13 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn, -Rm, LSL #]!
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[base].I = address;
-      CPUWriteMemory(address, myregs[dest].I);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[base].I = address;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x722:
@@ -5322,14 +6590,13 @@ if(cond_res) {*/
       // STR Rd, [Rn, -Rm, LSR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[base].I = address;      
-      CPUWriteMemory(address, myregs[dest].I);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[base].I = address;      
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x724:
@@ -5338,20 +6605,19 @@ if(cond_res) {*/
       // STR Rd, [Rn, -Rm, ASR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - offset;
-      
-	  myregs[base].I = address;
-      CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - offset;
+      myregs[base].I = address;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x726:
@@ -5366,13 +6632,12 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I - value;
-      
-	  myregs[base].I = address;      
-      CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I - value;
+      myregs[base].I = address;      
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x780:
@@ -5380,12 +6645,12 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn, Rm, LSL #]
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x782:
@@ -5394,13 +6659,12 @@ if(cond_res) {*/
       // STR Rd, [Rn, Rm, LSR #]
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x784:
@@ -5409,18 +6673,18 @@ if(cond_res) {*/
       // STR Rd, [Rn, Rm, ASR #]
  
       int shift = (opcode >> 7) & 31;
+      int offset;
       if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x786:
@@ -5435,12 +6699,11 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + value;
-      
-	  CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + value;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x7a0:
@@ -5448,13 +6711,13 @@ if(cond_res) {*/
     {
       // STR Rd, [Rn, Rm, LSL #]!
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[base].I = address;
-      CPUWriteMemory(address, myregs[dest].I);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[base].I = address;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x7a2:
@@ -5463,14 +6726,13 @@ if(cond_res) {*/
       // STR Rd, [Rn, Rm, LSR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[base].I = address;      
-      CPUWriteMemory(address, myregs[dest].I);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[base].I = address;      
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x7a4:
@@ -5479,20 +6741,19 @@ if(cond_res) {*/
       // STR Rd, [Rn, Rm, ASR #]!
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + offset;
-      
-	  myregs[base].I = address;
-      CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + offset;
+      myregs[base].I = address;
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x7a6:
@@ -5507,13 +6768,12 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I + value;
-      
-	  myregs[base].I = address;      
-      CPUWriteMemory(address, myregs[dest].I);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I + value;
+      myregs[base].I = address;      
+      CPUWriteMemorypu(address, myregs[dest].I);
+ 
     }
     break;
   case 0x610:
@@ -5524,12 +6784,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn], -Rm, LSL #
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address - offset;
        
@@ -5550,13 +6809,11 @@ if(cond_res) {*/
       // LDR Rd, [Rn], -Rm, LSR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  offset = shift ? myregs[opcode & 15].I >> shift : 0;
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = shift ? myregs[opcode & 15].I >> shift : 0;
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address - offset;
        
@@ -5577,19 +6834,17 @@ if(cond_res) {*/
       // LDR Rd, [Rn], -Rm, ASR #
  
       int shift = (opcode >> 7) & 31;
-      
-	  if(shift)
+      int offset;
+      if(shift)
         offset = (int)((s32)myregs[opcode & 15].I >> shift);
       else if(myregs[opcode & 15].I & 0x80000000)
         offset = 0xFFFFFFFF;
       else
         offset = 0;
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address - offset;
        
@@ -5616,12 +6871,10 @@ if(cond_res) {*/
       } else {
         RCR_VALUE;
       }
-      
-	  dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address - value;
        
@@ -5641,12 +6894,11 @@ if(cond_res) {*/
     {
       // LDR Rd, [Rn], Rm, LSL #
  
-      offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
-      dest = (opcode >> 12) & 15;
-      base = (opcode >> 16) & 15;
-      address = myregs[base].I;
-      
-	  myregs[dest].I = CPUReadMemory(address);
+      int offset = myregs[opcode & 15].I << ((opcode>>7)& 31);
+      int dest = (opcode >> 12) & 15;
+      int base = (opcode >> 16) & 15;
+      u32 address = myregs[base].I;
+      myregs[dest].I = CPUReadMemoryrealpu(address);
       if(dest != base)
         myregs[base].I = address + offset;
        
@@ -5715,78 +6967,88 @@ if(cond_res) {*/
     // MRC
     break;    
 #endif*/
-
+#define STMW_myregs(val,num) \
+  if(opcode & (val)) {\
+    CPUWriteMemorypu(address, myregs[(num)].I);\
+    if(!offset) {\
+      myregs[base].I = temp;\
+       \
+      offset = 1;\
+    } else {\
+       \
+    }\
+    address += 4;\
+  }
+#define STM_myregs(val,num) \
+  if(opcode & (val)) {\
+    CPUWriteMemorypu(address, myregs[(num)].I);\
+    if(!offset) {\
+       \
+      offset = 1;\
+    } else {\
+       \
+    }\
+    address += 4;\
+  }
     
   CASE_16(0x800)
     {
       // STMDA Rn, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      
-	  address = (temp + 4) & 0xFFFFFFFC;
-	  extern int offset;
-      offset = 0;
-	  
-	  //coto
-	  //returns: address pointer
-	  //u32 address = STM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = STM_myregs(opcode,address,1, 0);
-      address = STM_myregs(opcode,address,2, 1);
-      address = STM_myregs(opcode,address,4, 2);
-      address = STM_myregs(opcode,address,8, 3);
-      address = STM_myregs(opcode,address,16, 4);
-      address = STM_myregs(opcode,address,32, 5);
-      address = STM_myregs(opcode,address,64, 6);
-      address = STM_myregs(opcode,address,128, 7);
-      address = STM_myregs(opcode,address,256, 8);
-      address = STM_myregs(opcode,address,512, 9);
-      address = STM_myregs(opcode,address,1024, 10);
-      address = STM_myregs(opcode,address,2048, 11);
-      address = STM_myregs(opcode,address,4096, 12);
-      address = STM_myregs(opcode,address,8192, 13);
-      address = STM_myregs(opcode,address,16384, 14);
+      u32 address = (temp + 4) & 0xFFFFFFFC;
+      int offset = 0;
+      STM_myregs(1, 0);
+      STM_myregs(2, 1);
+      STM_myregs(4, 2);
+      STM_myregs(8, 3);
+      STM_myregs(16, 4);
+      STM_myregs(32, 5);
+      STM_myregs(64, 6);
+      STM_myregs(128, 7);
+      STM_myregs(256, 8);
+      STM_myregs(512, 9);
+      STM_myregs(1024, 10);
+      STM_myregs(2048, 11);
+      STM_myregs(4096, 12);
+      STM_myregs(8192, 13);
+      STM_myregs(16384, 14);
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
       }
+       
     }
     break;
   CASE_16(0x820)
     {
       // STMDA Rn!, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      
-	  address = (temp+4) & 0xFFFFFFFC;
-      
-	  extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = STMW_myregs(u32 opcode, u32 temp, u32 address,u32 val,u32 num)
-	  
-      address = STMW_myregs(opcode,temp,address,1, 0, base);
-      address = STMW_myregs(opcode,temp,address,2, 1, base);
-      address = STMW_myregs(opcode,temp,address,4, 2, base);
-      address = STMW_myregs(opcode,temp,address,8, 3, base);
-      address = STMW_myregs(opcode,temp,address,16, 4, base);
-      address = STMW_myregs(opcode,temp,address,32, 5, base);
-      address = STMW_myregs(opcode,temp,address,64, 6, base);
-      address = STMW_myregs(opcode,temp,address,128, 7, base);
-      address = STMW_myregs(opcode,temp,address,256, 8, base);
-      address = STMW_myregs(opcode,temp,address,512, 9, base);
-      address = STMW_myregs(opcode,temp,address,1024, 10, base);
-      address = STMW_myregs(opcode,temp,address,2048, 11, base);
-      address = STMW_myregs(opcode,temp,address,4096, 12, base);
-      address = STMW_myregs(opcode,temp,address,8192, 13, base);
-      address = STMW_myregs(opcode,temp,address,16384, 14, base);
+      u32 address = (temp+4) & 0xFFFFFFFC;
+      int offset = 0;
+
+      STMW_myregs(1, 0);
+      STMW_myregs(2, 1);
+      STMW_myregs(4, 2);
+      STMW_myregs(8, 3);
+      STMW_myregs(16, 4);
+      STMW_myregs(32, 5);
+      STMW_myregs(64, 6);
+      STMW_myregs(128, 7);
+      STMW_myregs(256, 8);
+      STMW_myregs(512, 9);
+      STMW_myregs(1024, 10);
+      STMW_myregs(2048, 11);
+      STMW_myregs(4096, 12);
+      STMW_myregs(8192, 13);
+      STMW_myregs(16384, 14);
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
  
         myregs[base].I = temp;
       }
@@ -5797,101 +7059,94 @@ if(cond_res) {*/
     {
       // STMDA Rn, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = (temp+4) & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-		
-	  //coto
-	  //returns: address pointer
-	  //u32 address = STM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = STM_myregs(opcode,address,1, 0);
-      address = STM_myregs(opcode,address,2, 1);
-      address = STM_myregs(opcode,address,4, 2);
-      address = STM_myregs(opcode,address,8, 3);
-      address = STM_myregs(opcode,address,16, 4);
-      address = STM_myregs(opcode,address,32, 5);
-      address = STM_myregs(opcode,address,64, 6);
-      address = STM_myregs(opcode,address,128, 7);
+      u32 address = (temp+4) & 0xFFFFFFFC;
+      int offset = 0;
+
+      STM_myregs(1, 0);
+      STM_myregs(2, 1);
+      STM_myregs(4, 2);
+      STM_myregs(8, 3);
+      STM_myregs(16, 4);
+      STM_myregs(32, 5);
+      STM_myregs(64, 6);
+      STM_myregs(128, 7);
 
       if(armMode == 0x11) {
-        address = STM_myregs(opcode,address,256, R8_FIQ);
-        address = STM_myregs(opcode,address,512, R9_FIQ);
-        address = STM_myregs(opcode,address,1024, R10_FIQ);
-        address = STM_myregs(opcode,address,2048, R11_FIQ);
-        address = STM_myregs(opcode,address,4096, R12_FIQ);
+        STM_myregs(256, R8_FIQ);
+        STM_myregs(512, R9_FIQ);
+        STM_myregs(1024, R10_FIQ);
+        STM_myregs(2048, R11_FIQ);
+        STM_myregs(4096, R12_FIQ);
       } else {
-        address = STM_myregs(opcode,address,256, 8);
-        address = STM_myregs(opcode,address,512, 9);
-        address = STM_myregs(opcode,address,1024, 10);
-        address = STM_myregs(opcode,address,2048, 11);
-        address = STM_myregs(opcode,address,4096, 12);
+        STM_myregs(256, 8);
+        STM_myregs(512, 9);
+        STM_myregs(1024, 10);
+        STM_myregs(2048, 11);
+        STM_myregs(4096, 12);
       }
 
       if(armMode != 0x10 && armMode != 0x1f) {
-        address = STM_myregs(opcode,address,8192, R13_USR);
-        address = STM_myregs(opcode,address,16384, R14_USR);
+        STM_myregs(8192, R13_USR);
+        STM_myregs(16384, R14_USR);
       } else {
-        address = STM_myregs(opcode,address,8192, 13);
-        address = STM_myregs(opcode,address,16384, 14);
+        STM_myregs(8192, 13);
+        STM_myregs(16384, 14);
       }
 
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
-	  } 
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
+      }
+       
     }
     break;
   CASE_16(0x860)
     {
       // STMDA Rn!, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = (temp+4) & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = STMW_myregs(u32 opcode, u32 temp, u32 address,u32 val,u32 num)
-	  
-      address = STMW_myregs(opcode,temp,address,1, 0, base);
-      address = STMW_myregs(opcode,temp,address,2, 1, base);
-      address = STMW_myregs(opcode,temp,address,4, 2, base);
-      address = STMW_myregs(opcode,temp,address,8, 3, base);
-      address = STMW_myregs(opcode,temp,address,16, 4, base);
-      address = STMW_myregs(opcode,temp,address,32, 5, base);
-      address = STMW_myregs(opcode,temp,address,64, 6, base);
-      address = STMW_myregs(opcode,temp,address,128, 7, base);
+      u32 address = (temp+4) & 0xFFFFFFFC;
+      int offset = 0;
+
+      STMW_myregs(1, 0);
+      STMW_myregs(2, 1);
+      STMW_myregs(4, 2);
+      STMW_myregs(8, 3);
+      STMW_myregs(16, 4);
+      STMW_myregs(32, 5);
+      STMW_myregs(64, 6);
+      STMW_myregs(128, 7);
 
       if(armMode == 0x11) {
-        address = STMW_myregs(opcode,temp,address,256, R8_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,512, R9_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,1024, R10_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,2048, R11_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,4096, R12_FIQ, base);
+        STMW_myregs(256, R8_FIQ);
+        STMW_myregs(512, R9_FIQ);
+        STMW_myregs(1024, R10_FIQ);
+        STMW_myregs(2048, R11_FIQ);
+        STMW_myregs(4096, R12_FIQ);
       } else {
-        address = STMW_myregs(opcode,temp,address,256, 8, base);
-        address = STMW_myregs(opcode,temp,address,512, 9, base);
-        address = STMW_myregs(opcode,temp,address,1024, 10, base);
-        address = STMW_myregs(opcode,temp,address,2048, 11, base);
-        address = STMW_myregs(opcode,temp,address,4096, 12, base);
+        STMW_myregs(256, 8);
+        STMW_myregs(512, 9);
+        STMW_myregs(1024, 10);
+        STMW_myregs(2048, 11);
+        STMW_myregs(4096, 12);
       }
 
       if(armMode != 0x10 && armMode != 0x1f) {
-        address = STMW_myregs(opcode,temp,address,8192, R13_USR, base);
-        address = STMW_myregs(opcode,temp,address,16384, R14_USR, base);
+        STMW_myregs(8192, R13_USR);
+        STMW_myregs(16384, R14_USR);
       } else {
-        address = STMW_myregs(opcode,temp,address,8192, 13, base);
-        address = STMW_myregs(opcode,temp,address,16384, 14, base);
+        STMW_myregs(8192, 13);
+        STMW_myregs(16384, 14);
       }
 
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
         myregs[base].I = temp;
       }
        
@@ -5902,67 +7157,57 @@ if(cond_res) {*/
     {
       // STMIA Rn, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
-      address = myregs[base].I & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer
-	  //u32 address = STM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = STM_myregs(opcode,address,1, 0);
-      address = STM_myregs(opcode,address,2, 1);
-      address = STM_myregs(opcode,address,4, 2);
-      address = STM_myregs(opcode,address,8, 3);
-      address = STM_myregs(opcode,address,16, 4);
-      address = STM_myregs(opcode,address,32, 5);
-      address = STM_myregs(opcode,address,64, 6);
-      address = STM_myregs(opcode,address,128, 7);
-      address = STM_myregs(opcode,address,256, 8);
-      address = STM_myregs(opcode,address,512, 9);
-      address = STM_myregs(opcode,address,1024, 10);
-      address = STM_myregs(opcode,address,2048, 11);
-      address = STM_myregs(opcode,address,4096, 12);
-      address = STM_myregs(opcode,address,8192, 13);
-      address = STM_myregs(opcode,address,16384, 14);
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = myregs[base].I & 0xFFFFFFFC;
+      int offset = 0;
+      STM_myregs(1, 0);
+      STM_myregs(2, 1);
+      STM_myregs(4, 2);
+      STM_myregs(8, 3);
+      STM_myregs(16, 4);
+      STM_myregs(32, 5);
+      STM_myregs(64, 6);
+      STM_myregs(128, 7);
+      STM_myregs(256, 8);
+      STM_myregs(512, 9);
+      STM_myregs(1024, 10);
+      STM_myregs(2048, 11);
+      STM_myregs(4096, 12);
+      STM_myregs(8192, 13);
+      STM_myregs(16384, 14);
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
-	  } 
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
+      }
+       
     }
   break;
   CASE_16(0x8a0)
     {
       // STMIA Rn!, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
-      address = myregs[base].I & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = myregs[base].I & 0xFFFFFFFC;
+      int offset = 0;
       u32 temp = myregs[base].I + 4*(cpuBitsSet[opcode & 0xFF] +
                                   cpuBitsSet[(opcode >> 8) & 255]);
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = STMW_myregs(u32 opcode, u32 temp, u32 address,u32 val,u32 num)
-	  
-      address = STMW_myregs(opcode,temp,address,1, 0, base);
-      address = STMW_myregs(opcode,temp,address,2, 1, base);
-      address = STMW_myregs(opcode,temp,address,4, 2, base);
-      address = STMW_myregs(opcode,temp,address,8, 3, base);
-      address = STMW_myregs(opcode,temp,address,16, 4, base);
-      address = STMW_myregs(opcode,temp,address,32, 5, base);
-      address = STMW_myregs(opcode,temp,address,64, 6, base);
-      address = STMW_myregs(opcode,temp,address,128, 7, base);
-      address = STMW_myregs(opcode,temp,address,256, 8, base);
-      address = STMW_myregs(opcode,temp,address,512, 9, base);
-      address = STMW_myregs(opcode,temp,address,1024, 10, base);
-      address = STMW_myregs(opcode,temp,address,2048, 11, base);
-      address = STMW_myregs(opcode,temp,address,4096, 12, base);
-      address = STMW_myregs(opcode,temp,address,8192, 13, base);
-      address = STMW_myregs(opcode,temp,address,16384, 14, base);
+      STMW_myregs(1, 0);
+      STMW_myregs(2, 1);
+      STMW_myregs(4, 2);
+      STMW_myregs(8, 3);
+      STMW_myregs(16, 4);
+      STMW_myregs(32, 5);
+      STMW_myregs(64, 6);
+      STMW_myregs(128, 7);
+      STMW_myregs(256, 8);
+      STMW_myregs(512, 9);
+      STMW_myregs(1024, 10);
+      STMW_myregs(2048, 11);
+      STMW_myregs(4096, 12);
+      STMW_myregs(8192, 13);
+      STMW_myregs(16384, 14);
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
         if(!offset) {
           myregs[base].I = temp;
            
@@ -5976,97 +7221,88 @@ if(cond_res) {*/
     {
       // STMIA Rn, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
-      address = myregs[base].I & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer
-	  //u32 address = STM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-	  address = STM_myregs(opcode,address,1, 0);
-      address = STM_myregs(opcode,address,2, 1);
-      address = STM_myregs(opcode,address,4, 2);
-      address = STM_myregs(opcode,address,8, 3);
-      address = STM_myregs(opcode,address,16, 4);
-      address = STM_myregs(opcode,address,32, 5);
-      address = STM_myregs(opcode,address,64, 6);
-      address = STM_myregs(opcode,address,128, 7);
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = myregs[base].I & 0xFFFFFFFC;
+      int offset = 0;
+      STM_myregs(1, 0);
+      STM_myregs(2, 1);
+      STM_myregs(4, 2);
+      STM_myregs(8, 3);
+      STM_myregs(16, 4);
+      STM_myregs(32, 5);
+      STM_myregs(64, 6);
+      STM_myregs(128, 7);
       if(armMode == 0x11) {
-        address = STM_myregs(opcode,address,256, R8_FIQ);
-        address = STM_myregs(opcode,address,512, R9_FIQ);
-        address = STM_myregs(opcode,address,1024, R10_FIQ);
-        address = STM_myregs(opcode,address,2048, R11_FIQ);
-        address = STM_myregs(opcode,address,4096, R12_FIQ);
+        STM_myregs(256, R8_FIQ);
+        STM_myregs(512, R9_FIQ);
+        STM_myregs(1024, R10_FIQ);
+        STM_myregs(2048, R11_FIQ);
+        STM_myregs(4096, R12_FIQ);
       } else {
-        address = STM_myregs(opcode,address,256, 8);
-        address = STM_myregs(opcode,address,512, 9);
-        address = STM_myregs(opcode,address,1024, 10);
-        address = STM_myregs(opcode,address,2048, 11);
-        address = STM_myregs(opcode,address,4096, 12);      
+        STM_myregs(256, 8);
+        STM_myregs(512, 9);
+        STM_myregs(1024, 10);
+        STM_myregs(2048, 11);
+        STM_myregs(4096, 12);      
       }
       if(armMode != 0x10 && armMode != 0x1f) {
-        address = STM_myregs(opcode,address,8192, R13_USR);
-        address = STM_myregs(opcode,address,16384, R14_USR);
+        STM_myregs(8192, R13_USR);
+        STM_myregs(16384, R14_USR);
       } else {
-        address = STM_myregs(opcode,address,8192, 13);
-        address = STM_myregs(opcode,address,16384, 14);
+        STM_myregs(8192, 13);
+        STM_myregs(16384, 14);
       }
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
-	  } 
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
+      }
+       
     }
     break;
   CASE_16(0x8e0)
     {
       // STMIA Rn!, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
-      address = myregs[base].I & 0xFFFFFFFC;
-	  extern int offset;
-	  offset = 0;
-	  
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = myregs[base].I & 0xFFFFFFFC;
+      int offset = 0;
       u32 temp = myregs[base].I + 4*(cpuBitsSet[opcode & 0xFF] +
-                                  cpuBitsSet[(opcode >> 8) & 255]);
-
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = STMW_myregs(u32 opcode, u32 temp, u32 address,u32 val,u32 num)
-	  
-      address = STMW_myregs(opcode,temp,address,1, 0, base);
-      address = STMW_myregs(opcode,temp,address,2, 1, base);
-      address = STMW_myregs(opcode,temp,address,4, 2, base);
-      address = STMW_myregs(opcode,temp,address,8, 3, base);
-      address = STMW_myregs(opcode,temp,address,16, 4, base);
-      address = STMW_myregs(opcode,temp,address,32, 5, base);
-      address = STMW_myregs(opcode,temp,address,64, 6, base);
-      address = STMW_myregs(opcode,temp,address,128, 7, base);
+                                  cpuBitsSet[(opcode >> 8) & 255]);    
+      STMW_myregs(1, 0);
+      STMW_myregs(2, 1);
+      STMW_myregs(4, 2);
+      STMW_myregs(8, 3);
+      STMW_myregs(16, 4);
+      STMW_myregs(32, 5);
+      STMW_myregs(64, 6);
+      STMW_myregs(128, 7);
       if(armMode == 0x11) {
-		address = STMW_myregs(opcode,temp,address,256, R8_FIQ, base);
-		address = STMW_myregs(opcode,temp,address,512, R9_FIQ, base);
-		address = STMW_myregs(opcode,temp,address,1024, R10_FIQ, base);
-		address = STMW_myregs(opcode,temp,address,2048, R11_FIQ, base);
-		address = STMW_myregs(opcode,temp,address,4096, R12_FIQ, base);
+        STMW_myregs(256, R8_FIQ);
+        STMW_myregs(512, R9_FIQ);
+        STMW_myregs(1024, R10_FIQ);
+        STMW_myregs(2048, R11_FIQ);
+        STMW_myregs(4096, R12_FIQ);
       } else {
-        address = STMW_myregs(opcode,temp,address,256, 8, base);
-        address = STMW_myregs(opcode,temp,address,512, 9, base);
-        address = STMW_myregs(opcode,temp,address,1024, 10, base);
-        address = STMW_myregs(opcode,temp,address,2048, 11, base);
-        address = STMW_myregs(opcode,temp,address,4096, 12, base);
+        STMW_myregs(256, 8);
+        STMW_myregs(512, 9);
+        STMW_myregs(1024, 10);
+        STMW_myregs(2048, 11);
+        STMW_myregs(4096, 12);      
       }
       if(armMode != 0x10 && armMode != 0x1f) {
-        address = STMW_myregs(opcode,temp,address,8192, R13_USR, base);
-        address = STMW_myregs(opcode,temp,address,16384, R14_USR, base);
+        STMW_myregs(8192, R13_USR);
+        STMW_myregs(16384, R14_USR);
       } else {
-        address = STMW_myregs(opcode,temp,address,8192, 13, base);
-        address = STMW_myregs(opcode,temp,address,16384, 14, base);
+        STMW_myregs(8192, 13);
+        STMW_myregs(16384, 14);
       }
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
         if(!offset) {
           myregs[base].I = temp;
-        }
+           
+        } 
+           
       }
        
     }
@@ -6076,70 +7312,63 @@ if(cond_res) {*/
     {
       // STMDB Rn, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = temp & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer
-	  //u32 address = STM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = STM_myregs(opcode,address,1, 0);
-      address = STM_myregs(opcode,address,2, 1);
-      address = STM_myregs(opcode,address,4, 2);
-      address = STM_myregs(opcode,address,8, 3);
-      address = STM_myregs(opcode,address,16, 4);
-      address = STM_myregs(opcode,address,32, 5);
-      address = STM_myregs(opcode,address,64, 6);
-      address = STM_myregs(opcode,address,128, 7);
-      address = STM_myregs(opcode,address,256, 8);
-      address = STM_myregs(opcode,address,512, 9);
-      address = STM_myregs(opcode,address,1024, 10);
-      address = STM_myregs(opcode,address,2048, 11);
-      address = STM_myregs(opcode,address,4096, 12);
-      address = STM_myregs(opcode,address,8192, 13);
-      address = STM_myregs(opcode,address,16384, 14);
+      u32 address = temp & 0xFFFFFFFC;
+      int offset = 0;
+      STM_myregs(1, 0);
+      STM_myregs(2, 1);
+      STM_myregs(4, 2);
+      STM_myregs(8, 3);
+      STM_myregs(16, 4);
+      STM_myregs(32, 5);
+      STM_myregs(64, 6);
+      STM_myregs(128, 7);
+      STM_myregs(256, 8);
+      STM_myregs(512, 9);
+      STM_myregs(1024, 10);
+      STM_myregs(2048, 11);
+      STM_myregs(4096, 12);
+      STM_myregs(8192, 13);
+      STM_myregs(16384, 14);
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
-	  } 
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
+      }
+       
     }
     break;
   CASE_16(0x920)
     {
       // STMDB Rn!, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = temp & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = STMW_myregs(u32 opcode, u32 temp, u32 address,u32 val,u32 num)
-	  
-      address = STMW_myregs(opcode,temp,address,1, 0, base);
-      address = STMW_myregs(opcode,temp,address,2, 1, base);
-      address = STMW_myregs(opcode,temp,address,4, 2, base);
-      address = STMW_myregs(opcode,temp,address,8, 3, base);
-      address = STMW_myregs(opcode,temp,address,16, 4, base);
-      address = STMW_myregs(opcode,temp,address,32, 5, base);
-      address = STMW_myregs(opcode,temp,address,64, 6, base);
-      address = STMW_myregs(opcode,temp,address,128, 7, base);
-      address = STMW_myregs(opcode,temp,address,256, 8, base);
-      address = STMW_myregs(opcode,temp,address,512, 9, base);
-      address = STMW_myregs(opcode,temp,address,1024, 10, base);
-      address = STMW_myregs(opcode,temp,address,2048, 11, base);
-      address = STMW_myregs(opcode,temp,address,4096, 12, base);
-      address = STMW_myregs(opcode,temp,address,8192, 13, base);
-      address = STMW_myregs(opcode,temp,address,16384, 14, base);
+      u32 address = temp & 0xFFFFFFFC;
+      int offset = 0;
+
+      STMW_myregs(1, 0);
+      STMW_myregs(2, 1);
+      STMW_myregs(4, 2);
+      STMW_myregs(8, 3);
+      STMW_myregs(16, 4);
+      STMW_myregs(32, 5);
+      STMW_myregs(64, 6);
+      STMW_myregs(128, 7);
+      STMW_myregs(256, 8);
+      STMW_myregs(512, 9);
+      STMW_myregs(1024, 10);
+      STMW_myregs(2048, 11);
+      STMW_myregs(4096, 12);
+      STMW_myregs(8192, 13);
+      STMW_myregs(16384, 14);
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
-		myregs[base].I = temp;
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
+           
+        myregs[base].I = temp;
       }
        
     }
@@ -6148,101 +7377,94 @@ if(cond_res) {*/
     {
       // STMDB Rn, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = temp & 0xFFFFFFFC;
-	  extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer
-	  //u32 address = STM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = STM_myregs(opcode,address,1, 0);
-      address = STM_myregs(opcode,address,2, 1);
-      address = STM_myregs(opcode,address,4, 2);
-      address = STM_myregs(opcode,address,8, 3);
-      address = STM_myregs(opcode,address,16, 4);
-      address = STM_myregs(opcode,address,32, 5);
-      address = STM_myregs(opcode,address,64, 6);
-      address = STM_myregs(opcode,address,128, 7);
+      u32 address = temp & 0xFFFFFFFC;
+      int offset = 0;
+
+      STM_myregs(1, 0);
+      STM_myregs(2, 1);
+      STM_myregs(4, 2);
+      STM_myregs(8, 3);
+      STM_myregs(16, 4);
+      STM_myregs(32, 5);
+      STM_myregs(64, 6);
+      STM_myregs(128, 7);
 
       if(armMode == 0x11) {
-        address = STM_myregs(opcode,address,256, R8_FIQ);
-        address = STM_myregs(opcode,address,512, R9_FIQ);
-        address = STM_myregs(opcode,address,1024, R10_FIQ);
-        address = STM_myregs(opcode,address,2048, R11_FIQ);
-        address = STM_myregs(opcode,address,4096, R12_FIQ);
+        STM_myregs(256, R8_FIQ);
+        STM_myregs(512, R9_FIQ);
+        STM_myregs(1024, R10_FIQ);
+        STM_myregs(2048, R11_FIQ);
+        STM_myregs(4096, R12_FIQ);
       } else {
-        address = STM_myregs(opcode,address,256, 8);
-        address = STM_myregs(opcode,address,512, 9);
-        address = STM_myregs(opcode,address,1024, 10);
-        address = STM_myregs(opcode,address,2048, 11);
-        address = STM_myregs(opcode,address,4096, 12);
+        STM_myregs(256, 8);
+        STM_myregs(512, 9);
+        STM_myregs(1024, 10);
+        STM_myregs(2048, 11);
+        STM_myregs(4096, 12);
       }
 
       if(armMode != 0x10 && armMode != 0x1f) {
-        address = STM_myregs(opcode,address,8192, R13_USR);
-        address = STM_myregs(opcode,address,16384, R14_USR);
+        STM_myregs(8192, R13_USR);
+        STM_myregs(16384, R14_USR);
       } else {
-        address = STM_myregs(opcode,address,8192, 13);
-        address = STM_myregs(opcode,address,16384, 14);
+        STM_myregs(8192, 13);
+        STM_myregs(16384, 14);
       }
-		
+
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
       }
+       
     }
     break;
   CASE_16(0x960)
     {
       // STMDB Rn!, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = temp & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = STMW_myregs(u32 opcode, u32 temp, u32 address,u32 val,u32 num)
-	  
-      address = STMW_myregs(opcode,temp,address,1, 0, base);
-      address = STMW_myregs(opcode,temp,address,2, 1, base);
-      address = STMW_myregs(opcode,temp,address,4, 2, base);
-      address = STMW_myregs(opcode,temp,address,8, 3, base);
-      address = STMW_myregs(opcode,temp,address,16, 4, base);
-      address = STMW_myregs(opcode,temp,address,32, 5, base);
-      address = STMW_myregs(opcode,temp,address,64, 6, base);
-      address = STMW_myregs(opcode,temp,address,128, 7, base);
+      u32 address = temp & 0xFFFFFFFC;
+      int offset = 0;
+
+      STMW_myregs(1, 0);
+      STMW_myregs(2, 1);
+      STMW_myregs(4, 2);
+      STMW_myregs(8, 3);
+      STMW_myregs(16, 4);
+      STMW_myregs(32, 5);
+      STMW_myregs(64, 6);
+      STMW_myregs(128, 7);
 
       if(armMode == 0x11) {
-        address = STMW_myregs(opcode,temp,address,256, R8_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,512, R9_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,1024, R10_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,2048, R11_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,4096, R12_FIQ, base);
+        STMW_myregs(256, R8_FIQ);
+        STMW_myregs(512, R9_FIQ);
+        STMW_myregs(1024, R10_FIQ);
+        STMW_myregs(2048, R11_FIQ);
+        STMW_myregs(4096, R12_FIQ);
       } else {
-        address = STMW_myregs(opcode,temp,address,256, 8, base);
-        address = STMW_myregs(opcode,temp,address,512, 9, base);
-        address = STMW_myregs(opcode,temp,address,1024, 10, base);
-        address = STMW_myregs(opcode,temp,address,2048, 11, base);
-        address = STMW_myregs(opcode,temp,address,4096, 12, base);
+        STMW_myregs(256, 8);
+        STMW_myregs(512, 9);
+        STMW_myregs(1024, 10);
+        STMW_myregs(2048, 11);
+        STMW_myregs(4096, 12);
       }
 
       if(armMode != 0x10 && armMode != 0x1f) {
-        address = STMW_myregs(opcode,temp,address,8192, R13_USR, base);
-        address = STMW_myregs(opcode,temp,address,16384, R14_USR, base);
+        STMW_myregs(8192, R13_USR);
+        STMW_myregs(16384, R14_USR);
       } else {
-        address = STMW_myregs(opcode,temp,address,8192, 13, base);
-        address = STMW_myregs(opcode,temp,address,16384, 14, base);
+        STMW_myregs(8192, 13);
+        STMW_myregs(16384, 14);
       }
 
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
         myregs[base].I = temp;
       }
        
@@ -6253,70 +7475,60 @@ if(cond_res) {*/
     {
       // STMIB Rn, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
-      address = (myregs[base].I+4) & 0xFFFFFFFC;
-	  extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer
-	  //u32 address = STM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = STM_myregs(opcode,address,1, 0);
-      address = STM_myregs(opcode,address,2, 1);
-      address = STM_myregs(opcode,address,4, 2);
-      address = STM_myregs(opcode,address,8, 3);
-      address = STM_myregs(opcode,address,16, 4);
-      address = STM_myregs(opcode,address,32, 5);
-      address = STM_myregs(opcode,address,64, 6);
-      address = STM_myregs(opcode,address,128, 7);
-      address = STM_myregs(opcode,address,256, 8);
-      address = STM_myregs(opcode,address,512, 9);
-      address = STM_myregs(opcode,address,1024, 10);
-      address = STM_myregs(opcode,address,2048, 11);
-      address = STM_myregs(opcode,address,4096, 12);
-      address = STM_myregs(opcode,address,8192, 13);
-      address = STM_myregs(opcode,address,16384, 14);
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = (myregs[base].I+4) & 0xFFFFFFFC;
+      int offset = 0;
+      STM_myregs(1, 0);
+      STM_myregs(2, 1);
+      STM_myregs(4, 2);
+      STM_myregs(8, 3);
+      STM_myregs(16, 4);
+      STM_myregs(32, 5);
+      STM_myregs(64, 6);
+      STM_myregs(128, 7);
+      STM_myregs(256, 8);
+      STM_myregs(512, 9);
+      STM_myregs(1024, 10);
+      STM_myregs(2048, 11);
+      STM_myregs(4096, 12);
+      STM_myregs(8192, 13);
+      STM_myregs(16384, 14);
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
       }
+       
     }
     break;
   CASE_16(0x9a0)
     {
       // STMIB Rn!, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
-      address = (myregs[base].I+4) & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-      
-	  u32 temp = myregs[base].I + 4*(cpuBitsSet[opcode & 0xFF] +
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = (myregs[base].I+4) & 0xFFFFFFFC;
+      int offset = 0;
+      u32 temp = myregs[base].I + 4*(cpuBitsSet[opcode & 0xFF] +
                                   cpuBitsSet[(opcode >> 8) & 255]);
-      
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = STMW_myregs(u32 opcode, u32 temp, u32 address,u32 val,u32 num)
-	  
-	  address = STMW_myregs(opcode,temp,address,1, 0, base);
-      address = STMW_myregs(opcode,temp,address,2, 1, base);
-      address = STMW_myregs(opcode,temp,address,4, 2, base);
-      address = STMW_myregs(opcode,temp,address,8, 3, base);
-      address = STMW_myregs(opcode,temp,address,16, 4, base);
-      address = STMW_myregs(opcode,temp,address,32, 5, base);
-      address = STMW_myregs(opcode,temp,address,64, 6, base);
-      address = STMW_myregs(opcode,temp,address,128, 7, base);
-      address = STMW_myregs(opcode,temp,address,256, 8, base);
-      address = STMW_myregs(opcode,temp,address,512, 9, base);
-      address = STMW_myregs(opcode,temp,address,1024, 10, base);
-      address = STMW_myregs(opcode,temp,address,2048, 11, base);
-      address = STMW_myregs(opcode,temp,address,4096, 12, base);
-      address = STMW_myregs(opcode,temp,address,8192, 13, base);
-      address = STMW_myregs(opcode,temp,address,16384, 14, base);
+      STMW_myregs(1, 0);
+      STMW_myregs(2, 1);
+      STMW_myregs(4, 2);
+      STMW_myregs(8, 3);
+      STMW_myregs(16, 4);
+      STMW_myregs(32, 5);
+      STMW_myregs(64, 6);
+      STMW_myregs(128, 7);
+      STMW_myregs(256, 8);
+      STMW_myregs(512, 9);
+      STMW_myregs(1024, 10);
+      STMW_myregs(2048, 11);
+      STMW_myregs(4096, 12);
+      STMW_myregs(8192, 13);
+      STMW_myregs(16384, 14);
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
         if(!offset) {
           myregs[base].I = temp;
+           
         } 
            
       }
@@ -6327,138 +7539,134 @@ if(cond_res) {*/
     {
       // STMIB Rn, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
-      address = (myregs[base].I+4) & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer
-	  //u32 address = STM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = STM_myregs(opcode,address,1, 0);
-      address = STM_myregs(opcode,address,2, 1);
-      address = STM_myregs(opcode,address,4, 2);
-      address = STM_myregs(opcode,address,8, 3);
-      address = STM_myregs(opcode,address,16, 4);
-      address = STM_myregs(opcode,address,32, 5);
-      address = STM_myregs(opcode,address,64, 6);
-      address = STM_myregs(opcode,address,128, 7);
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = (myregs[base].I+4) & 0xFFFFFFFC;
+      int offset = 0;
+      STM_myregs(1, 0);
+      STM_myregs(2, 1);
+      STM_myregs(4, 2);
+      STM_myregs(8, 3);
+      STM_myregs(16, 4);
+      STM_myregs(32, 5);
+      STM_myregs(64, 6);
+      STM_myregs(128, 7);
       if(armMode == 0x11) {
-        address = STM_myregs(opcode,address,256, R8_FIQ);
-        address = STM_myregs(opcode,address,512, R9_FIQ);
-        address = STM_myregs(opcode,address,1024, R10_FIQ);
-        address = STM_myregs(opcode,address,2048, R11_FIQ);
-        address = STM_myregs(opcode,address,4096, R12_FIQ);
+        STM_myregs(256, R8_FIQ);
+        STM_myregs(512, R9_FIQ);
+        STM_myregs(1024, R10_FIQ);
+        STM_myregs(2048, R11_FIQ);
+        STM_myregs(4096, R12_FIQ);
       } else {
-        address = STM_myregs(opcode,address,256, 8);
-        address = STM_myregs(opcode,address,512, 9);
-        address = STM_myregs(opcode,address,1024, 10);
-        address = STM_myregs(opcode,address,2048, 11);
-        address = STM_myregs(opcode,address,4096, 12);      
+        STM_myregs(256, 8);
+        STM_myregs(512, 9);
+        STM_myregs(1024, 10);
+        STM_myregs(2048, 11);
+        STM_myregs(4096, 12);      
       }
       if(armMode != 0x10 && armMode != 0x1f) {
-        address = STM_myregs(opcode,address,8192, R13_USR);
-        address = STM_myregs(opcode,address,16384, R14_USR);
+        STM_myregs(8192, R13_USR);
+        STM_myregs(16384, R14_USR);
       } else {
-        address = STM_myregs(opcode,address,8192, 13);
-        address = STM_myregs(opcode,address,16384, 14);
+        STM_myregs(8192, 13);
+        STM_myregs(16384, 14);
       }
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
+ 
       }
+       
     }
     break;
   CASE_16(0x9e0)
     {
       // STMIB Rn!, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
-      address = (myregs[base].I+4) & 0xFFFFFFFC;
-	  extern int offset;
-	  offset = 0;
-	  
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = (myregs[base].I+4) & 0xFFFFFFFC;
+      int offset = 0;
       u32 temp = myregs[base].I + 4*(cpuBitsSet[opcode & 0xFF] +
-                                  cpuBitsSet[(opcode >> 8) & 255]);
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = STMW_myregs(u32 opcode, u32 temp, u32 address,u32 val,u32 num)
-	  
-      address = STMW_myregs(opcode,temp,address,1, 0, base);
-      address = STMW_myregs(opcode,temp,address,2, 1, base);
-      address = STMW_myregs(opcode,temp,address,4, 2, base);
-      address = STMW_myregs(opcode,temp,address,8, 3, base);
-      address = STMW_myregs(opcode,temp,address,16, 4, base);
-      address = STMW_myregs(opcode,temp,address,32, 5, base);
-      address = STMW_myregs(opcode,temp,address,64, 6, base);
-      address = STMW_myregs(opcode,temp,address,128, 7, base);
+                                  cpuBitsSet[(opcode >> 8) & 255]);    
+      STMW_myregs(1, 0);
+      STMW_myregs(2, 1);
+      STMW_myregs(4, 2);
+      STMW_myregs(8, 3);
+      STMW_myregs(16, 4);
+      STMW_myregs(32, 5);
+      STMW_myregs(64, 6);
+      STMW_myregs(128, 7);
       if(armMode == 0x11) {
-        address = STMW_myregs(opcode,temp,address,256, R8_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,512, R9_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,1024, R10_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,2048, R11_FIQ, base);
-        address = STMW_myregs(opcode,temp,address,4096, R12_FIQ, base);
+        STMW_myregs(256, R8_FIQ);
+        STMW_myregs(512, R9_FIQ);
+        STMW_myregs(1024, R10_FIQ);
+        STMW_myregs(2048, R11_FIQ);
+        STMW_myregs(4096, R12_FIQ);
       } else {
-        address = STMW_myregs(opcode,temp,address,256, 8, base);
-        address = STMW_myregs(opcode,temp,address,512, 9, base);
-        address = STMW_myregs(opcode,temp,address,1024, 10, base);
-        address = STMW_myregs(opcode,temp,address,2048, 11, base);
-        address = STMW_myregs(opcode,temp,address,4096, 12, base);
+        STMW_myregs(256, 8);
+        STMW_myregs(512, 9);
+        STMW_myregs(1024, 10);
+        STMW_myregs(2048, 11);
+        STMW_myregs(4096, 12);      
       }
       if(armMode != 0x10 && armMode != 0x1f) {
-        address = STMW_myregs(opcode,temp,address,8192, R13_USR, base);
-        address = STMW_myregs(opcode,temp,address,16384, R14_USR, base);
+        STMW_myregs(8192, R13_USR);
+        STMW_myregs(16384, R14_USR);
       } else {
-        address = STMW_myregs(opcode,temp,address,8192, 13, base);
-        address = STMW_myregs(opcode,temp,address,16384, 14, base);
+        STMW_myregs(8192, 13);
+        STMW_myregs(16384, 14);
       }
       if(opcode & 32768) {
-        CPUWriteMemory(address, myregs[15].I+4);
+        CPUWriteMemorypu(address, myregs[15].I+4);
         if(!offset) {
           myregs[base].I = temp;
+           
         } 
+           
       }
        
     }
     break;
     
+#define LDM_myregs(val,num) \
+  if(opcode & (val)) {\
+    myregs[(num)].I = CPUReadMemoryrealpu(address);\
+    if(offset){}\
+    else {\
+      offset = 1;\
+    }\
+    address += 4;\
+  }
 
   CASE_16(0x810)
     {
       // LDMDA Rn, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = (temp + 4) & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = LDM_myregs(opcode,address,1, 0);
-      address = LDM_myregs(opcode,address,2, 1);
-      address = LDM_myregs(opcode,address,4, 2);
-      address = LDM_myregs(opcode,address,8, 3);
-      address = LDM_myregs(opcode,address,16, 4);
-      address = LDM_myregs(opcode,address,32, 5);
-      address = LDM_myregs(opcode,address,64, 6);
-      address = LDM_myregs(opcode,address,128, 7);
-      address = LDM_myregs(opcode,address,256, 8);
-      address = LDM_myregs(opcode,address,512, 9);
-      address = LDM_myregs(opcode,address,1024, 10);
-      address = LDM_myregs(opcode,address,2048, 11);
-      address = LDM_myregs(opcode,address,4096, 12);
-      address = LDM_myregs(opcode,address,8192, 13);
-      address = LDM_myregs(opcode,address,16384, 14);
+      u32 address = (temp + 4) & 0xFFFFFFFC;
+       
+      int offset = 0;
+      LDM_myregs(1, 0);
+      LDM_myregs(2, 1);
+      LDM_myregs(4, 2);
+      LDM_myregs(8, 3);
+      LDM_myregs(16, 4);
+      LDM_myregs(32, 5);
+      LDM_myregs(64, 6);
+      LDM_myregs(128, 7);
+      LDM_myregs(256, 8);
+      LDM_myregs(512, 9);
+      LDM_myregs(1024, 10);
+      LDM_myregs(2048, 11);
+      LDM_myregs(4096, 12);
+      LDM_myregs(8192, 13);
+      LDM_myregs(16384, 14);
       if(opcode & 32768) {
-        myregs[15].I = CPUReadMemory(address);
+        myregs[15].I = CPUReadMemoryrealpu(address);
         //armNextPC = myregs[15].I;
         myregs[15].I += 4;
         //ARM_PREFETCH;
+ 
       }
        
     }
@@ -6467,35 +7675,30 @@ if(cond_res) {*/
     {
       // LDMDA Rn!, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = (temp + 4) & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = LDM_myregs(opcode,address,1, 0);
-      address = LDM_myregs(opcode,address,2, 1);
-      address = LDM_myregs(opcode,address,4, 2);
-      address = LDM_myregs(opcode,address,8, 3);
-      address = LDM_myregs(opcode,address,16, 4);
-      address = LDM_myregs(opcode,address,32, 5);
-      address = LDM_myregs(opcode,address,64, 6);
-      address = LDM_myregs(opcode,address,128, 7);
-      address = LDM_myregs(opcode,address,256, 8);
-      address = LDM_myregs(opcode,address,512, 9);
-      address = LDM_myregs(opcode,address,1024, 10);
-      address = LDM_myregs(opcode,address,2048, 11);
-      address = LDM_myregs(opcode,address,4096, 12);
-      address = LDM_myregs(opcode,address,8192, 13);
-      address = LDM_myregs(opcode,address,16384, 14);
+      u32 address = (temp + 4) & 0xFFFFFFFC;
+       
+      int offset = 0;
+      LDM_myregs(1, 0);
+      LDM_myregs(2, 1);
+      LDM_myregs(4, 2);
+      LDM_myregs(8, 3);
+      LDM_myregs(16, 4);
+      LDM_myregs(32, 5);
+      LDM_myregs(64, 6);
+      LDM_myregs(128, 7);
+      LDM_myregs(256, 8);
+      LDM_myregs(512, 9);
+      LDM_myregs(1024, 10);
+      LDM_myregs(2048, 11);
+      LDM_myregs(4096, 12);
+      LDM_myregs(8192, 13);
+      LDM_myregs(16384, 14);
       if(opcode & 32768) {
-        myregs[15].I = CPUReadMemory(address);
-		
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
         //armNextPC = myregs[15].I;
         myregs[15].I += 4;
         //ARM_PREFETCH;
@@ -6509,37 +7712,33 @@ if(cond_res) {*/
     {
       // LDMDA Rn, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = (temp + 4) & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
+      u32 address = (temp + 4) & 0xFFFFFFFC;
+       
+      int offset = 0;
       if(opcode & 0x8000) {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-        address = LDM_myregs(opcode,address,256, 8);
-        address = LDM_myregs(opcode,address,512, 9);
-        address = LDM_myregs(opcode,address,1024, 10);
-        address = LDM_myregs(opcode,address,2048, 11);
-        address = LDM_myregs(opcode,address,4096, 12);
-        address = LDM_myregs(opcode,address,8192, 13);
-        address = LDM_myregs(opcode,address,16384, 14);
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+        LDM_myregs(256, 8);
+        LDM_myregs(512, 9);
+        LDM_myregs(1024, 10);
+        LDM_myregs(2048, 11);
+        LDM_myregs(4096, 12);
+        LDM_myregs(8192, 13);
+        LDM_myregs(16384, 14);
 
-        myregs[15].I = CPUReadMemory(address);
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
 		myregs[15].I += 4;
-		
+
         //CPUSwitchMode(myregs[17].I & 0x1f, false);
         /*if(armState) {  //ichfly don't need that
           //armNextPC = myregs[15].I & 0xFFFFFFFC;
@@ -6550,78 +7749,75 @@ if(cond_res) {*/
           //THUMB_PREFETCH;
         }*/
       } else {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
 
         if(armMode == 0x11) {
-          address = LDM_myregs(opcode,address,256, R8_FIQ);
-          address = LDM_myregs(opcode,address,512, R9_FIQ);
-          address = LDM_myregs(opcode,address,1024, R10_FIQ);
-          address = LDM_myregs(opcode,address,2048, R11_FIQ);
-          address = LDM_myregs(opcode,address,4096, R12_FIQ);
+          LDM_myregs(256, R8_FIQ);
+          LDM_myregs(512, R9_FIQ);
+          LDM_myregs(1024, R10_FIQ);
+          LDM_myregs(2048, R11_FIQ);
+          LDM_myregs(4096, R12_FIQ);
         } else {
-          address = LDM_myregs(opcode,address,256, 8);
-          address = LDM_myregs(opcode,address,512, 9);
-          address = LDM_myregs(opcode,address,1024, 10);
-          address = LDM_myregs(opcode,address,2048, 11);
-          address = LDM_myregs(opcode,address,4096, 12);
+          LDM_myregs(256, 8);
+          LDM_myregs(512, 9);
+          LDM_myregs(1024, 10);
+          LDM_myregs(2048, 11);
+          LDM_myregs(4096, 12);
         }
 
         if(armMode != 0x10 && armMode != 0x1f) {
-          address = LDM_myregs(opcode,address,8192, R13_USR);
-          address = LDM_myregs(opcode,address,16384, R14_USR);
+          LDM_myregs(8192, R13_USR);
+          LDM_myregs(16384, R14_USR);
         } else {
-          address = LDM_myregs(opcode,address,8192, 13);
-          address = LDM_myregs(opcode,address,16384, 14);
+          LDM_myregs(8192, 13);
+          LDM_myregs(16384, 14);
         }
-		
+ 
       }
+         
     }
     break;
   CASE_16(0x870)
     {
       // LDMDA Rn!, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = (temp + 4) & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
+      u32 address = (temp + 4) & 0xFFFFFFFC;
+       
+      int offset = 0;
       if(opcode & 0x8000) {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-        address = LDM_myregs(opcode,address,256, 8);
-        address = LDM_myregs(opcode,address,512, 9);
-        address = LDM_myregs(opcode,address,1024, 10);
-        address = LDM_myregs(opcode,address,2048, 11);
-        address = LDM_myregs(opcode,address,4096, 12);
-        address = LDM_myregs(opcode,address,8192, 13);
-        address = LDM_myregs(opcode,address,16384, 14);
-		
-        myregs[15].I = CPUReadMemory(address);
-		
-        if(!(opcode & (1 << base)))
-           myregs[base].I = temp;
-			
-		   myregs[15].I += 4;
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+        LDM_myregs(256, 8);
+        LDM_myregs(512, 9);
+        LDM_myregs(1024, 10);
+        LDM_myregs(2048, 11);
+        LDM_myregs(4096, 12);
+        LDM_myregs(8192, 13);
+        LDM_myregs(16384, 14);
+
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
+        if(!(opcode & (1 << base)))    
+          myregs[base].I = temp;
+
+
+		myregs[15].I += 4;
         //CPUSwitchMode(myregs[17].I & 0x1f, false);
         /*if(armState) { //ichfly don't need that
           //armNextPC = myregs[15].I & 0xFFFFFFFC;
@@ -6632,35 +7828,35 @@ if(cond_res) {*/
           //THUMB_PREFETCH;
         }*/
       } else {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
 
         if(armMode == 0x11) {
-          address = LDM_myregs(opcode,address,256, R8_FIQ);
-          address = LDM_myregs(opcode,address,512, R9_FIQ);
-          address = LDM_myregs(opcode,address,1024, R10_FIQ);
-          address = LDM_myregs(opcode,address,2048, R11_FIQ);
-          address = LDM_myregs(opcode,address,4096, R12_FIQ);
+          LDM_myregs(256, R8_FIQ);
+          LDM_myregs(512, R9_FIQ);
+          LDM_myregs(1024, R10_FIQ);
+          LDM_myregs(2048, R11_FIQ);
+          LDM_myregs(4096, R12_FIQ);
         } else {
-          address = LDM_myregs(opcode,address,256, 8);
-          address = LDM_myregs(opcode,address,512, 9);
-          address = LDM_myregs(opcode,address,1024, 10);
-          address = LDM_myregs(opcode,address,2048, 11);
-          address = LDM_myregs(opcode,address,4096, 12);
+          LDM_myregs(256, 8);
+          LDM_myregs(512, 9);
+          LDM_myregs(1024, 10);
+          LDM_myregs(2048, 11);
+          LDM_myregs(4096, 12);
         }
 
         if(armMode != 0x10 && armMode != 0x1f) {
-          address = LDM_myregs(opcode,address,8192, R13_USR);
-          address = LDM_myregs(opcode,address,16384, R14_USR);
+          LDM_myregs(8192, R13_USR);
+          LDM_myregs(16384, R14_USR);
         } else {
-          address = LDM_myregs(opcode,address,8192, 13);
-          address = LDM_myregs(opcode,address,16384, 14);
+          LDM_myregs(8192, 13);
+          LDM_myregs(16384, 14);
         }
 
         if(!(opcode & (1 << base)))    
@@ -6674,36 +7870,32 @@ if(cond_res) {*/
     {
       // LDMIA Rn, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
-      address = myregs[base].I & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = LDM_myregs(opcode,address,1, 0);
-      address = LDM_myregs(opcode,address,2, 1);
-      address = LDM_myregs(opcode,address,4, 2);
-      address = LDM_myregs(opcode,address,8, 3);
-      address = LDM_myregs(opcode,address,16, 4);
-      address = LDM_myregs(opcode,address,32, 5);
-      address = LDM_myregs(opcode,address,64, 6);
-      address = LDM_myregs(opcode,address,128, 7);
-      address = LDM_myregs(opcode,address,256, 8);
-      address = LDM_myregs(opcode,address,512, 9);
-      address = LDM_myregs(opcode,address,1024, 10);
-      address = LDM_myregs(opcode,address,2048, 11);
-      address = LDM_myregs(opcode,address,4096, 12);
-      address = LDM_myregs(opcode,address,8192, 13);
-      address = LDM_myregs(opcode,address,16384, 14);
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = myregs[base].I & 0xFFFFFFFC;
+       
+      int offset = 0;
+      LDM_myregs(1, 0);
+      LDM_myregs(2, 1);
+      LDM_myregs(4, 2);
+      LDM_myregs(8, 3);
+      LDM_myregs(16, 4);
+      LDM_myregs(32, 5);
+      LDM_myregs(64, 6);
+      LDM_myregs(128, 7);
+      LDM_myregs(256, 8);
+      LDM_myregs(512, 9);
+      LDM_myregs(1024, 10);
+      LDM_myregs(2048, 11);
+      LDM_myregs(4096, 12);
+      LDM_myregs(8192, 13);
+      LDM_myregs(16384, 14);
       if(opcode & 32768) {
-        myregs[15].I = CPUReadMemory(address);
-		
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
         //armNextPC = myregs[15].I;
         myregs[15].I += 4;
         //ARM_PREFETCH;
+ 
       }
        
     }
@@ -6712,35 +7904,30 @@ if(cond_res) {*/
     {
       // LDMIA Rn!, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I + 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = myregs[base].I & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = LDM_myregs(opcode,address,1, 0);
-      address = LDM_myregs(opcode,address,2, 1);
-      address = LDM_myregs(opcode,address,4, 2);
-      address = LDM_myregs(opcode,address,8, 3);
-      address = LDM_myregs(opcode,address,16, 4);
-      address = LDM_myregs(opcode,address,32, 5);
-      address = LDM_myregs(opcode,address,64, 6);
-      address = LDM_myregs(opcode,address,128, 7);
-      address = LDM_myregs(opcode,address,256, 8);
-      address = LDM_myregs(opcode,address,512, 9);
-      address = LDM_myregs(opcode,address,1024, 10);
-      address = LDM_myregs(opcode,address,2048, 11);
-      address = LDM_myregs(opcode,address,4096, 12);
-      address = LDM_myregs(opcode,address,8192, 13);
-      address = LDM_myregs(opcode,address,16384, 14);
+      u32 address = myregs[base].I & 0xFFFFFFFC;
+       
+      int offset = 0;
+      LDM_myregs(1, 0);
+      LDM_myregs(2, 1);
+      LDM_myregs(4, 2);
+      LDM_myregs(8, 3);
+      LDM_myregs(16, 4);
+      LDM_myregs(32, 5);
+      LDM_myregs(64, 6);
+      LDM_myregs(128, 7);
+      LDM_myregs(256, 8);
+      LDM_myregs(512, 9);
+      LDM_myregs(1024, 10);
+      LDM_myregs(2048, 11);
+      LDM_myregs(4096, 12);
+      LDM_myregs(8192, 13);
+      LDM_myregs(16384, 14);
       if(opcode & 32768) {
-        myregs[15].I = CPUReadMemory(address);
-		
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
         //armNextPC = myregs[15].I;
         myregs[15].I += 4;
         //ARM_PREFETCH;
@@ -6754,33 +7941,30 @@ if(cond_res) {*/
     {
       // LDMIA Rn, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
-      address = myregs[base].I & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = myregs[base].I & 0xFFFFFFFC;
+       
+      int offset = 0;
       if(opcode & 0x8000) {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-        address = LDM_myregs(opcode,address,256, 8);
-        address = LDM_myregs(opcode,address,512, 9);
-        address = LDM_myregs(opcode,address,1024, 10);
-        address = LDM_myregs(opcode,address,2048, 11);
-        address = LDM_myregs(opcode,address,4096, 12);
-        address = LDM_myregs(opcode,address,8192, 13);
-        address = LDM_myregs(opcode,address,16384, 14);
-		
-        myregs[15].I = CPUReadMemory(address);
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+        LDM_myregs(256, 8);
+        LDM_myregs(512, 9);
+        LDM_myregs(1024, 10);
+        LDM_myregs(2048, 11);
+        LDM_myregs(4096, 12);
+        LDM_myregs(8192, 13);
+        LDM_myregs(16384, 14);
+
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
+
 		myregs[15].I += 4;
         //CPUSwitchMode(myregs[17].I & 0x1f, false);
         /*if(armState) { //ichfly don't need that
@@ -6792,78 +7976,75 @@ if(cond_res) {*/
           //THUMB_PREFETCH;
         }*/
       } else {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
 
         if(armMode == 0x11) {
-          address = LDM_myregs(opcode,address,256, R8_FIQ);
-          address = LDM_myregs(opcode,address,512, R9_FIQ);
-          address = LDM_myregs(opcode,address,1024, R10_FIQ);
-          address = LDM_myregs(opcode,address,2048, R11_FIQ);
-          address = LDM_myregs(opcode,address,4096, R12_FIQ);
+          LDM_myregs(256, R8_FIQ);
+          LDM_myregs(512, R9_FIQ);
+          LDM_myregs(1024, R10_FIQ);
+          LDM_myregs(2048, R11_FIQ);
+          LDM_myregs(4096, R12_FIQ);
         } else {
-          address = LDM_myregs(opcode,address,256, 8);
-          address = LDM_myregs(opcode,address,512, 9);
-          address = LDM_myregs(opcode,address,1024, 10);
-          address = LDM_myregs(opcode,address,2048, 11);
-          address = LDM_myregs(opcode,address,4096, 12);
+          LDM_myregs(256, 8);
+          LDM_myregs(512, 9);
+          LDM_myregs(1024, 10);
+          LDM_myregs(2048, 11);
+          LDM_myregs(4096, 12);
         }
 
         if(armMode != 0x10 && armMode != 0x1f) {
-          address = LDM_myregs(opcode,address,8192, R13_USR);
-          address = LDM_myregs(opcode,address,16384, R14_USR);
+          LDM_myregs(8192, R13_USR);
+          LDM_myregs(16384, R14_USR);
         } else {
-          address = LDM_myregs(opcode,address,8192, 13);
-          address = LDM_myregs(opcode,address,16384, 14);
+          LDM_myregs(8192, 13);
+          LDM_myregs(16384, 14);
         }
       }
+       
     }
   break;
   CASE_16(0x8f0)
     {
       // LDMIA Rn!, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I +
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = myregs[base].I & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
+      u32 address = myregs[base].I & 0xFFFFFFFC;
+       
+      int offset = 0;
       if(opcode & 0x8000) {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-        address = LDM_myregs(opcode,address,256, 8);
-        address = LDM_myregs(opcode,address,512, 9);
-        address = LDM_myregs(opcode,address,1024, 10);
-        address = LDM_myregs(opcode,address,2048, 11);
-        address = LDM_myregs(opcode,address,4096, 12);
-        address = LDM_myregs(opcode,address,8192, 13);
-        address = LDM_myregs(opcode,address,16384, 14);
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+        LDM_myregs(256, 8);
+        LDM_myregs(512, 9);
+        LDM_myregs(1024, 10);
+        LDM_myregs(2048, 11);
+        LDM_myregs(4096, 12);
+        LDM_myregs(8192, 13);
+        LDM_myregs(16384, 14);
 
-        myregs[15].I = CPUReadMemory(address);
+        myregs[15].I = CPUReadMemoryrealpu(address);
 
         if(!(opcode & (1 << base)))    
           myregs[base].I = temp;
-		  myregs[15].I += 4;
-        
-		//CPUSwitchMode(myregs[17].I & 0x1f, false);
+
+
+		myregs[15].I += 4;
+        //CPUSwitchMode(myregs[17].I & 0x1f, false);
         /*if(armState) {
           //armNextPC = myregs[15].I & 0xFFFFFFFC;
           myregs[15].I = //armNextPC + 4; 
@@ -6873,40 +8054,42 @@ if(cond_res) {*/
           //THUMB_PREFETCH;
         }*/ //ichfly don't need that
       } else {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-		
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+
         if(armMode == 0x11) {
-          address = LDM_myregs(opcode,address,256, R8_FIQ);
-          address = LDM_myregs(opcode,address,512, R9_FIQ);
-          address = LDM_myregs(opcode,address,1024, R10_FIQ);
-          address = LDM_myregs(opcode,address,2048, R11_FIQ);
-          address = LDM_myregs(opcode,address,4096, R12_FIQ);
+          LDM_myregs(256, R8_FIQ);
+          LDM_myregs(512, R9_FIQ);
+          LDM_myregs(1024, R10_FIQ);
+          LDM_myregs(2048, R11_FIQ);
+          LDM_myregs(4096, R12_FIQ);
         } else {
-          address = LDM_myregs(opcode,address,256, 8);
-          address = LDM_myregs(opcode,address,512, 9);
-          address = LDM_myregs(opcode,address,1024, 10);
-          address = LDM_myregs(opcode,address,2048, 11);
-          address = LDM_myregs(opcode,address,4096, 12);
+          LDM_myregs(256, 8);
+          LDM_myregs(512, 9);
+          LDM_myregs(1024, 10);
+          LDM_myregs(2048, 11);
+          LDM_myregs(4096, 12);
         }
 
         if(armMode != 0x10 && armMode != 0x1f) {
-          address = LDM_myregs(opcode,address,8192, R13_USR);
-          address = LDM_myregs(opcode,address,16384, R14_USR);
+          LDM_myregs(8192, R13_USR);
+          LDM_myregs(16384, R14_USR);
         } else {
-          address = LDM_myregs(opcode,address,8192, 13);
-          address = LDM_myregs(opcode,address,16384, 14);
+          LDM_myregs(8192, 13);
+          LDM_myregs(16384, 14);
         }
-		
+
         if(!(opcode & (1 << base)))    
           myregs[base].I = temp;
+ 
       }
+       
     }
     break;
     
@@ -6914,37 +8097,34 @@ if(cond_res) {*/
     {
       // LDMDB Rn, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = temp & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-	  address = LDM_myregs(opcode,address,1, 0);
-      address = LDM_myregs(opcode,address,2, 1);
-      address = LDM_myregs(opcode,address,4, 2);
-      address = LDM_myregs(opcode,address,8, 3);
-      address = LDM_myregs(opcode,address,16, 4);
-      address = LDM_myregs(opcode,address,32, 5);
-      address = LDM_myregs(opcode,address,64, 6);
-      address = LDM_myregs(opcode,address,128, 7);
-      address = LDM_myregs(opcode,address,256, 8);
-      address = LDM_myregs(opcode,address,512, 9);
-      address = LDM_myregs(opcode,address,1024, 10);
-      address = LDM_myregs(opcode,address,2048, 11);
-      address = LDM_myregs(opcode,address,4096, 12);
-      address = LDM_myregs(opcode,address,8192, 13);
-      address = LDM_myregs(opcode,address,16384, 14);
+      u32 address = temp & 0xFFFFFFFC;
+       
+      int offset = 0;
+      LDM_myregs(1, 0);
+      LDM_myregs(2, 1);
+      LDM_myregs(4, 2);
+      LDM_myregs(8, 3);
+      LDM_myregs(16, 4);
+      LDM_myregs(32, 5);
+      LDM_myregs(64, 6);
+      LDM_myregs(128, 7);
+      LDM_myregs(256, 8);
+      LDM_myregs(512, 9);
+      LDM_myregs(1024, 10);
+      LDM_myregs(2048, 11);
+      LDM_myregs(4096, 12);
+      LDM_myregs(8192, 13);
+      LDM_myregs(16384, 14);
       if(opcode & 32768) {
-        myregs[15].I = CPUReadMemory(address);
-		//armNextPC = myregs[15].I;
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
+        //armNextPC = myregs[15].I;
         myregs[15].I += 4;
         //ARM_PREFETCH;
+ 
       }
        
     }
@@ -6953,35 +8133,31 @@ if(cond_res) {*/
     {
       // LDMDB Rn!, {Rlist}
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = temp & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-      address = LDM_myregs(opcode,address,1, 0);
-      address = LDM_myregs(opcode,address,2, 1);
-      address = LDM_myregs(opcode,address,4, 2);
-      address = LDM_myregs(opcode,address,8, 3);
-      address = LDM_myregs(opcode,address,16, 4);
-      address = LDM_myregs(opcode,address,32, 5);
-      address = LDM_myregs(opcode,address,64, 6);
-      address = LDM_myregs(opcode,address,128, 7);
-      address = LDM_myregs(opcode,address,256, 8);
-      address = LDM_myregs(opcode,address,512, 9);
-      address = LDM_myregs(opcode,address,1024, 10);
-      address = LDM_myregs(opcode,address,2048, 11);
-      address = LDM_myregs(opcode,address,4096, 12);
-      address = LDM_myregs(opcode,address,8192, 13);
-      address = LDM_myregs(opcode,address,16384, 14);
+      u32 address = temp & 0xFFFFFFFC;
+       
+      int offset = 0;
+      LDM_myregs(1, 0);
+      LDM_myregs(2, 1);
+      LDM_myregs(4, 2);
+      LDM_myregs(8, 3);
+      LDM_myregs(16, 4);
+      LDM_myregs(32, 5);
+      LDM_myregs(64, 6);
+      LDM_myregs(128, 7);
+      LDM_myregs(256, 8);
+      LDM_myregs(512, 9);
+      LDM_myregs(1024, 10);
+      LDM_myregs(2048, 11);
+      LDM_myregs(4096, 12);
+      LDM_myregs(8192, 13);
+      LDM_myregs(16384, 14);
       if(opcode & 32768) {
-        myregs[15].I = CPUReadMemory(address);
-		//armNextPC = myregs[15].I;
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
+        //armNextPC = myregs[15].I;
         myregs[15].I += 4;
         //ARM_PREFETCH;
       }
@@ -6994,35 +8170,32 @@ if(cond_res) {*/
     {
       // LDMDB Rn, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = temp & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
+      u32 address = temp & 0xFFFFFFFC;
+       
+      int offset = 0;
       if(opcode & 0x8000) {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-        address = LDM_myregs(opcode,address,256, 8);
-        address = LDM_myregs(opcode,address,512, 9);
-        address = LDM_myregs(opcode,address,1024, 10);
-        address = LDM_myregs(opcode,address,2048, 11);
-        address = LDM_myregs(opcode,address,4096, 12);
-        address = LDM_myregs(opcode,address,8192, 13);
-        address = LDM_myregs(opcode,address,16384, 14);
-		
-        myregs[15].I = CPUReadMemory(address);
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+        LDM_myregs(256, 8);
+        LDM_myregs(512, 9);
+        LDM_myregs(1024, 10);
+        LDM_myregs(2048, 11);
+        LDM_myregs(4096, 12);
+        LDM_myregs(8192, 13);
+        LDM_myregs(16384, 14);
+
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
+
 		myregs[15].I += 4;
         //CPUSwitchMode(myregs[17].I & 0x1f, false);
         /*if(armState) { //ichfly don't need that
@@ -7034,76 +8207,73 @@ if(cond_res) {*/
           //THUMB_PREFETCH;
         }*/
       } else {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-		
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+
         if(armMode == 0x11) {
-          address = LDM_myregs(opcode,address,256, R8_FIQ);
-          address = LDM_myregs(opcode,address,512, R9_FIQ);
-          address = LDM_myregs(opcode,address,1024, R10_FIQ);
-          address = LDM_myregs(opcode,address,2048, R11_FIQ);
-          address = LDM_myregs(opcode,address,4096, R12_FIQ);
+          LDM_myregs(256, R8_FIQ);
+          LDM_myregs(512, R9_FIQ);
+          LDM_myregs(1024, R10_FIQ);
+          LDM_myregs(2048, R11_FIQ);
+          LDM_myregs(4096, R12_FIQ);
         } else {
-          address = LDM_myregs(opcode,address,256, 8);
-          address = LDM_myregs(opcode,address,512, 9);
-          address = LDM_myregs(opcode,address,1024, 10);
-          address = LDM_myregs(opcode,address,2048, 11);
-          address = LDM_myregs(opcode,address,4096, 12);
+          LDM_myregs(256, 8);
+          LDM_myregs(512, 9);
+          LDM_myregs(1024, 10);
+          LDM_myregs(2048, 11);
+          LDM_myregs(4096, 12);
         }
 
         if(armMode != 0x10 && armMode != 0x1f) {
-          address = LDM_myregs(opcode,address,8192, R13_USR);
-          address = LDM_myregs(opcode,address,16384, R14_USR);
+          LDM_myregs(8192, R13_USR);
+          LDM_myregs(16384, R14_USR);
         } else {
-          address = LDM_myregs(opcode,address,8192, 13);
-          address = LDM_myregs(opcode,address,16384, 14);
+          LDM_myregs(8192, 13);
+          LDM_myregs(16384, 14);
         }
       }
+       
     }
     break;
   CASE_16(0x970)
     {
       // LDMDB Rn!, {Rlist}^
  
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I - 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = temp & 0xFFFFFFFC;
-      extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
+      u32 address = temp & 0xFFFFFFFC;
+       
+      int offset = 0;
       if(opcode & 0x8000) {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-        address = LDM_myregs(opcode,address,256, 8);
-        address = LDM_myregs(opcode,address,512, 9);
-        address = LDM_myregs(opcode,address,1024, 10);
-        address = LDM_myregs(opcode,address,2048, 11);
-        address = LDM_myregs(opcode,address,4096, 12);
-        address = LDM_myregs(opcode,address,8192, 13);
-        address = LDM_myregs(opcode,address,16384, 14);
-		
-        myregs[15].I = CPUReadMemory(address);
-		
-        if(!(opcode & (1 << base)))
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+        LDM_myregs(256, 8);
+        LDM_myregs(512, 9);
+        LDM_myregs(1024, 10);
+        LDM_myregs(2048, 11);
+        LDM_myregs(4096, 12);
+        LDM_myregs(8192, 13);
+        LDM_myregs(16384, 14);
+
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
+        if(!(opcode & (1 << base)))    
           myregs[base].I = temp;
-		
+
+
 		myregs[15].I += 4;
         //CPUSwitchMode(myregs[17].I & 0x1f, false);
         /*if(armState) { //ichfly don't need that
@@ -7115,35 +8285,35 @@ if(cond_res) {*/
           //THUMB_PREFETCH;
         }*/
       } else {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-		
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+
         if(armMode == 0x11) {
-          address = LDM_myregs(opcode,address,256, R8_FIQ);
-          address = LDM_myregs(opcode,address,512, R9_FIQ);
-          address = LDM_myregs(opcode,address,1024, R10_FIQ);
-          address = LDM_myregs(opcode,address,2048, R11_FIQ);
-          address = LDM_myregs(opcode,address,4096, R12_FIQ);
+          LDM_myregs(256, R8_FIQ);
+          LDM_myregs(512, R9_FIQ);
+          LDM_myregs(1024, R10_FIQ);
+          LDM_myregs(2048, R11_FIQ);
+          LDM_myregs(4096, R12_FIQ);
         } else {
-          address = LDM_myregs(opcode,address,256, 8);
-          address = LDM_myregs(opcode,address,512, 9);
-          address = LDM_myregs(opcode,address,1024, 10);
-          address = LDM_myregs(opcode,address,2048, 11);
-          address = LDM_myregs(opcode,address,4096, 12);
+          LDM_myregs(256, 8);
+          LDM_myregs(512, 9);
+          LDM_myregs(1024, 10);
+          LDM_myregs(2048, 11);
+          LDM_myregs(4096, 12);
         }
 
         if(armMode != 0x10 && armMode != 0x1f) {
-          address = LDM_myregs(opcode,address,8192, R13_USR);
-          address = LDM_myregs(opcode,address,16384, R14_USR);
+          LDM_myregs(8192, R13_USR);
+          LDM_myregs(16384, R14_USR);
         } else {
-          address = LDM_myregs(opcode,address,8192, 13);
-          address = LDM_myregs(opcode,address,16384, 14);
+          LDM_myregs(8192, 13);
+          LDM_myregs(16384, 14);
         }
 
         if(!(opcode & (1 << base)))    
@@ -7155,32 +8325,26 @@ if(cond_res) {*/
   CASE_16(0x990)
     {
       // LDMIB Rn, {Rlist}
-      base = (opcode & 0x000F0000) >> 16;
-      address = (myregs[base].I+4) & 0xFFFFFFFC;
-	  extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-	  address = LDM_myregs(opcode,address,1, 0);
-      address = LDM_myregs(opcode,address,2, 1);
-      address = LDM_myregs(opcode,address,4, 2);
-      address = LDM_myregs(opcode,address,8, 3);
-      address = LDM_myregs(opcode,address,16, 4);
-      address = LDM_myregs(opcode,address,32, 5);
-      address = LDM_myregs(opcode,address,64, 6);
-      address = LDM_myregs(opcode,address,128, 7);
-      address = LDM_myregs(opcode,address,256, 8);
-      address = LDM_myregs(opcode,address,512, 9);
-      address = LDM_myregs(opcode,address,1024, 10);
-      address = LDM_myregs(opcode,address,2048, 11);
-      address = LDM_myregs(opcode,address,4096, 12);
-      address = LDM_myregs(opcode,address,8192, 13);
-      address = LDM_myregs(opcode,address,16384, 14);
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = (myregs[base].I+4) & 0xFFFFFFFC;
+      int offset = 0;
+      LDM_myregs(1, 0);
+      LDM_myregs(2, 1);
+      LDM_myregs(4, 2);
+      LDM_myregs(8, 3);
+      LDM_myregs(16, 4);
+      LDM_myregs(32, 5);
+      LDM_myregs(64, 6);
+      LDM_myregs(128, 7);
+      LDM_myregs(256, 8);
+      LDM_myregs(512, 9);
+      LDM_myregs(1024, 10);
+      LDM_myregs(2048, 11);
+      LDM_myregs(4096, 12);
+      LDM_myregs(8192, 13);
+      LDM_myregs(16384, 14);
       if(opcode & 32768) {
-        myregs[15].I = CPUReadMemory(address);
+        myregs[15].I = CPUReadMemoryrealpu(address);
 
         //armNextPC = myregs[15].I;
         myregs[15].I += 4;
@@ -7191,35 +8355,30 @@ if(cond_res) {*/
   CASE_16(0x9b0)
     {
       // LDMIB Rn!, {Rlist}
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I + 
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = (myregs[base].I+4) & 0xFFFFFFFC;
-	  extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-	  address = LDM_myregs(opcode,address,1, 0);
-      address = LDM_myregs(opcode,address,2, 1);
-      address = LDM_myregs(opcode,address,4, 2);
-      address = LDM_myregs(opcode,address,8, 3);
-      address = LDM_myregs(opcode,address,16, 4);
-      address = LDM_myregs(opcode,address,32, 5);
-      address = LDM_myregs(opcode,address,64, 6);
-      address = LDM_myregs(opcode,address,128, 7);
-      address = LDM_myregs(opcode,address,256, 8);
-      address = LDM_myregs(opcode,address,512, 9);
-      address = LDM_myregs(opcode,address,1024, 10);
-      address = LDM_myregs(opcode,address,2048, 11);
-      address = LDM_myregs(opcode,address,4096, 12);
-      address = LDM_myregs(opcode,address,8192, 13);
-      address = LDM_myregs(opcode,address,16384, 14);
+      u32 address = (myregs[base].I+4) & 0xFFFFFFFC;
+      int offset = 0;
+      LDM_myregs(1, 0);
+      LDM_myregs(2, 1);
+      LDM_myregs(4, 2);
+      LDM_myregs(8, 3);
+      LDM_myregs(16, 4);
+      LDM_myregs(32, 5);
+      LDM_myregs(64, 6);
+      LDM_myregs(128, 7);
+      LDM_myregs(256, 8);
+      LDM_myregs(512, 9);
+      LDM_myregs(1024, 10);
+      LDM_myregs(2048, 11);
+      LDM_myregs(4096, 12);
+      LDM_myregs(8192, 13);
+      LDM_myregs(16384, 14);
       if(opcode & 32768) {
-        myregs[15].I = CPUReadMemory(address);
-		//armNextPC = myregs[15].I;
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
+        //armNextPC = myregs[15].I;
         myregs[15].I += 4;
         //ARM_PREFETCH;
       }
@@ -7230,33 +8389,29 @@ if(cond_res) {*/
   CASE_16(0x9d0)
     {
       // LDMIB Rn, {Rlist}^
-      base = (opcode & 0x000F0000) >> 16;
-      address = (myregs[base].I+4) & 0xFFFFFFFC;
-	  extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-	  if(opcode & 0x8000) {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-        address = LDM_myregs(opcode,address,256, 8);
-        address = LDM_myregs(opcode,address,512, 9);
-        address = LDM_myregs(opcode,address,1024, 10);
-        address = LDM_myregs(opcode,address,2048, 11);
-        address = LDM_myregs(opcode,address,4096, 12);
-        address = LDM_myregs(opcode,address,8192, 13);
-        address = LDM_myregs(opcode,address,16384, 14);
-		
-        myregs[15].I = CPUReadMemory(address);
+      int base = (opcode & 0x000F0000) >> 16;
+      u32 address = (myregs[base].I+4) & 0xFFFFFFFC;
+      int offset = 0;
+      if(opcode & 0x8000) {
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+        LDM_myregs(256, 8);
+        LDM_myregs(512, 9);
+        LDM_myregs(1024, 10);
+        LDM_myregs(2048, 11);
+        LDM_myregs(4096, 12);
+        LDM_myregs(8192, 13);
+        LDM_myregs(16384, 14);
+
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
+
 		myregs[15].I += 4;
         //CPUSwitchMode(myregs[17].I & 0x1f, false);
         /*if(armState) { //ichfly don't need that
@@ -7268,35 +8423,35 @@ if(cond_res) {*/
           //THUMB_PREFETCH;
         }*/
       } else {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-		
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+
         if(armMode == 0x11) {
-          address = LDM_myregs(opcode,address,256, R8_FIQ);
-          address = LDM_myregs(opcode,address,512, R9_FIQ);
-          address = LDM_myregs(opcode,address,1024, R10_FIQ);
-          address = LDM_myregs(opcode,address,2048, R11_FIQ);
-          address = LDM_myregs(opcode,address,4096, R12_FIQ);
+          LDM_myregs(256, R8_FIQ);
+          LDM_myregs(512, R9_FIQ);
+          LDM_myregs(1024, R10_FIQ);
+          LDM_myregs(2048, R11_FIQ);
+          LDM_myregs(4096, R12_FIQ);
         } else {
-          address = LDM_myregs(opcode,address,256, 8);
-          address = LDM_myregs(opcode,address,512, 9);
-          address = LDM_myregs(opcode,address,1024, 10);
-          address = LDM_myregs(opcode,address,2048, 11);
-          address = LDM_myregs(opcode,address,4096, 12);
+          LDM_myregs(256, 8);
+          LDM_myregs(512, 9);
+          LDM_myregs(1024, 10);
+          LDM_myregs(2048, 11);
+          LDM_myregs(4096, 12);
         }
 
         if(armMode != 0x10 && armMode != 0x1f) {
-          address = LDM_myregs(opcode,address,8192, R13_USR);
-          address = LDM_myregs(opcode,address,16384, R14_USR);
+          LDM_myregs(8192, R13_USR);
+          LDM_myregs(16384, R14_USR);
         } else {
-          address = LDM_myregs(opcode,address,8192, 13);
-          address = LDM_myregs(opcode,address,16384, 14);
+          LDM_myregs(8192, 13);
+          LDM_myregs(16384, 14);
         }
       }
     }
@@ -7304,40 +8459,33 @@ if(cond_res) {*/
   CASE_16(0x9f0)
     {
       // LDMIB Rn!, {Rlist}^
-      base = (opcode & 0x000F0000) >> 16;
+      int base = (opcode & 0x000F0000) >> 16;
       u32 temp = myregs[base].I +
         4 * (cpuBitsSet[opcode & 255] + cpuBitsSet[(opcode >> 8) & 255]);
-      address = (myregs[base].I+4) & 0xFFFFFFFC;
-	  
-	  extern int offset;
-	  offset = 0;
-	  
-	  //coto
-	  //returns: address pointer 
-	  //u32 address = LDM_myregs(u32 opcode, u32 address,u32 val,u32 num)
-	  
-	  if(opcode & 0x8000) {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
-        address = LDM_myregs(opcode,address,256, 8);
-        address = LDM_myregs(opcode,address,512, 9);
-        address = LDM_myregs(opcode,address,1024, 10);
-        address = LDM_myregs(opcode,address,2048, 11);
-        address = LDM_myregs(opcode,address,4096, 12);
-        address = LDM_myregs(opcode,address,8192, 13);
-        address = LDM_myregs(opcode,address,16384, 14);
-		
-        myregs[15].I = CPUReadMemory(address);
-		
+      u32 address = (myregs[base].I+4) & 0xFFFFFFFC;
+      int offset = 0;
+      if(opcode & 0x8000) {
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
+        LDM_myregs(256, 8);
+        LDM_myregs(512, 9);
+        LDM_myregs(1024, 10);
+        LDM_myregs(2048, 11);
+        LDM_myregs(4096, 12);
+        LDM_myregs(8192, 13);
+        LDM_myregs(16384, 14);
+
+        myregs[15].I = CPUReadMemoryrealpu(address);
+
         if(!(opcode & (1 << base)))    
           myregs[base].I = temp;
-		
+
 		myregs[15].I += 4;
         //CPUSwitchMode(myregs[17].I & 0x1f, false);
         /*if(armState) { //ichfly don't need that
@@ -7349,71 +8497,80 @@ if(cond_res) {*/
           //THUMB_PREFETCH;
         }*/
       } else {
-        address = LDM_myregs(opcode,address,1, 0);
-        address = LDM_myregs(opcode,address,2, 1);
-        address = LDM_myregs(opcode,address,4, 2);
-        address = LDM_myregs(opcode,address,8, 3);
-        address = LDM_myregs(opcode,address,16, 4);
-        address = LDM_myregs(opcode,address,32, 5);
-        address = LDM_myregs(opcode,address,64, 6);
-        address = LDM_myregs(opcode,address,128, 7);
+        LDM_myregs(1, 0);
+        LDM_myregs(2, 1);
+        LDM_myregs(4, 2);
+        LDM_myregs(8, 3);
+        LDM_myregs(16, 4);
+        LDM_myregs(32, 5);
+        LDM_myregs(64, 6);
+        LDM_myregs(128, 7);
 
         if(armMode == 0x11) {
-          address = LDM_myregs(opcode,address,256, R8_FIQ);
-          address = LDM_myregs(opcode,address,512, R9_FIQ);
-          address = LDM_myregs(opcode,address,1024, R10_FIQ);
-          address = LDM_myregs(opcode,address,2048, R11_FIQ);
-          address = LDM_myregs(opcode,address,4096, R12_FIQ);
+          LDM_myregs(256, R8_FIQ);
+          LDM_myregs(512, R9_FIQ);
+          LDM_myregs(1024, R10_FIQ);
+          LDM_myregs(2048, R11_FIQ);
+          LDM_myregs(4096, R12_FIQ);
         } else {
-          address = LDM_myregs(opcode,address,256, 8);
-          address = LDM_myregs(opcode,address,512, 9);
-          address = LDM_myregs(opcode,address,1024, 10);
-          address = LDM_myregs(opcode,address,2048, 11);
-          address = LDM_myregs(opcode,address,4096, 12);
+          LDM_myregs(256, 8);
+          LDM_myregs(512, 9);
+          LDM_myregs(1024, 10);
+          LDM_myregs(2048, 11);
+          LDM_myregs(4096, 12);
         }
-		
+
         if(armMode != 0x10 && armMode != 0x1f) {
-          address = LDM_myregs(opcode,address,8192, R13_USR);
-          address = LDM_myregs(opcode,address,16384, R14_USR);
+          LDM_myregs(8192, R13_USR);
+          LDM_myregs(16384, R14_USR);
         } else {
-          address = LDM_myregs(opcode,address,8192, 13);
-          address = LDM_myregs(opcode,address,16384, 14);
+          LDM_myregs(8192, 13);
+          LDM_myregs(16384, 14);
         }
-		
+
         if(!(opcode & (1 << base)))    
           myregs[base].I = temp;
       }
     }
     break;    
 
-	  default:
 
-      iprintf("Undefined ARM instruction %08x\n", (unsigned int) opcode);
+
+		default:
+
+      Log("Undefined ARM instruction %08x\n", opcode);
 	 
 	/*u32 offset = myregs[15].I - 8;
 	if(offset > 0x02040000) offset = myregs[15].I - 8 - (u32)rom + 0x08000000;
 	disArm(offset - 4,disbuffer,DIS_VIEW_ADDRESS);
-	iprintf(disbuffer);
-	iprintf("\r\n");
+	Log(disbuffer);
+	Log("\r\n");
 	disArm(offset,disbuffer,DIS_VIEW_ADDRESS);
-	iprintf(disbuffer);
-	iprintf("\r\n");
+	Log(disbuffer);
+	Log("\r\n");
 	disArm(offset + 4,disbuffer,DIS_VIEW_ADDRESS);
-	iprintf(disbuffer);
-	iprintf("\r\n");*/
-	debugDump();
+	Log(disbuffer);
+	Log("\r\n");*/
 	REG_IME = IME_DISABLE;
+	debugDump();
 	while(1);
     // END
 }
 
 }
 
-//__attribute__((section(".itcm")))
-void emuInstrTHUMB(u16 opcode, u32 *R) 
+
+#ifdef directcpu
+__attribute__((section(".itcm")))
+void __attribute__ ((hot)) emuInstrTHUMB(u16 opcode, s32 *R) 
+#else
+__attribute__((section(".itcm")))
+inline void emuInstrTHUMB(u16 opcode, s32 *R) 
+#endif
 {
 
 reg_pair* myregs = (reg_pair*)R;
+
 
 switch(opcode >> 8) {
 /* case 0x00:
@@ -8053,8 +9210,8 @@ case 0x28:
  case 0x51:
    // STR Rd, [Rs, Rn]
    {
-     address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
-     CPUWriteMemory(address,
+     u32 address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
+     CPUWriteMemorypu(address,
                     myregs[opcode & 7].I);
    }
    break;
@@ -8062,8 +9219,8 @@ case 0x28:
  case 0x53:
    // STRH Rd, [Rs, Rn]
    {
-     address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
-     CPUWriteHalfWord(address,
+     u32 address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
+     CPUWriteHalfWordpu(address,
                       myregs[opcode&7].W.W0);
    }
    break;
@@ -8071,8 +9228,8 @@ case 0x28:
  case 0x55:
    // STRB Rd, [Rs, Rn]
    {
-     address = myregs[(opcode>>3)&7].I + myregs[(opcode >>6)&7].I;
-     CPUWriteByte(address,
+     u32 address = myregs[(opcode>>3)&7].I + myregs[(opcode >>6)&7].I;
+     CPUWriteBytepu(address,
                   myregs[opcode & 7].B.B0);
    }
    break;
@@ -8080,40 +9237,40 @@ case 0x28:
  case 0x57:
    // LDSB Rd, [Rs, Rn]
    {
-     address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
-     myregs[opcode&7].I = (s8)CPUReadByte(address);
+     u32 address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
+     myregs[opcode&7].I = (s8)CPUReadByterealpu(address);
    }
    break;
  case 0x58:
  case 0x59:
    // LDR Rd, [Rs, Rn]
    {
-     address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
-     myregs[opcode&7].I = CPUReadMemory(address);
+     u32 address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
+     myregs[opcode&7].I = CPUReadMemoryrealpu(address);
    }
    break;
  case 0x5a:
  case 0x5b:
    // LDRH Rd, [Rs, Rn]
    {
-     address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
-     myregs[opcode&7].I = CPUReadHalfWord(address);
+     u32 address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
+     myregs[opcode&7].I = CPUReadHalfWordrealpu(address);
    }
    break;
  case 0x5c:
  case 0x5d:
    // LDRB Rd, [Rs, Rn]
    {
-     address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
-     myregs[opcode&7].I = CPUReadByte(address);
+     u32 address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
+     myregs[opcode&7].I = CPUReadByterealpu(address);
    }
    break;
  case 0x5e:
  case 0x5f:
    // LDSH Rd, [Rs, Rn]
    {
-     address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
-     myregs[opcode&7].I = (s16)CPUReadHalfWordSigned(address);
+     u32 address = myregs[(opcode>>3)&7].I + myregs[(opcode>>6)&7].I;
+     myregs[opcode&7].I = (s16)CPUReadHalfWordrealpuSigned(address);
    }
    break;
  case 0x60:
@@ -8126,8 +9283,8 @@ case 0x28:
  case 0x67:
    // STR Rd, [Rs, #Imm]
    {
-     address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31)<<2);
-     CPUWriteMemory(address,
+     u32 address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31)<<2);
+     CPUWriteMemorypu(address,
                     myregs[opcode&7].I);
    }
    break;
@@ -8141,8 +9298,8 @@ case 0x28:
  case 0x6f:
    // LDR Rd, [Rs, #Imm]
    {
-     address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31)<<2);
-     myregs[opcode&7].I = CPUReadMemory(address);
+     u32 address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31)<<2);
+     myregs[opcode&7].I = CPUReadMemoryrealpu(address);
    }
    break;
  case 0x70:
@@ -8155,8 +9312,8 @@ case 0x28:
  case 0x77:
    // STRB Rd, [Rs, #Imm]
    {
-     address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31));
-     CPUWriteByte(address,
+     u32 address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31));
+     CPUWriteBytepu(address,
                   myregs[opcode&7].B.B0);
    }
    break;
@@ -8170,8 +9327,8 @@ case 0x28:
  case 0x7f:
    // LDRB Rd, [Rs, #Imm]
    {
-     address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31));
-     myregs[opcode&7].I = CPUReadByte(address);
+     u32 address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31));
+     myregs[opcode&7].I = CPUReadByterealpu(address);
    }
    break;
  case 0x80:
@@ -8184,8 +9341,8 @@ case 0x28:
  case 0x87:
    // STRH Rd, [Rs, #Imm]
    {
-     address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31)<<1);
-     CPUWriteHalfWord(address,
+     u32 address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31)<<1);
+     CPUWriteHalfWordpu(address,
                       myregs[opcode&7].W.W0);
    }
    break;   
@@ -8199,8 +9356,8 @@ case 0x28:
  case 0x8f:
    // LDRH Rd, [Rs, #Imm]
    {
-     address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31)<<1);
-     myregs[opcode&7].I = CPUReadHalfWord(address);
+     u32 address = myregs[(opcode>>3)&7].I + (((opcode>>6)&31)<<1);
+     myregs[opcode&7].I = CPUReadHalfWordrealpu(address);
    }
    break;
  case 0x90:
@@ -8214,8 +9371,8 @@ case 0x28:
    // STR R0~R7, [SP, #Imm]
    {
    u8 myregsist = (opcode >> 8) & 7;
-     address = myregs[13].I + ((opcode&255)<<2);
-     CPUWriteMemory(address, myregs[myregsist].I);
+     u32 address = myregs[13].I + ((opcode&255)<<2);
+     CPUWriteMemorypu(address, myregs[myregsist].I);
    }
    break;      
  case 0x98:
@@ -8229,9 +9386,9 @@ case 0x28:
    // LDR R0~R7, [SP, #Imm]
    {
    u8 myregsist = (opcode >> 8) & 7;
-     address = myregs[13].I + ((opcode&255)<<2);   
+     u32 address = myregs[13].I + ((opcode&255)<<2);   
      //myregs[myregsist].I = CPUReadMemoryrealpuQuick(address); //ichfly
-	 myregs[myregsist].I = CPUReadMemory(address);
+	 myregs[myregsist].I = CPUReadMemoryrealpu(address);
    }
    break;
 /* case 0xa0:
@@ -8271,98 +9428,100 @@ case 0x28:
      myregs[13].I += offset;
    }
    break;*/
-
+#define PUSH_myregs(val, r) \
+  if(opcode & (val)) {\
+    CPUWriteMemorypu(address, myregs[(r)].I);\
+    offset = 1;\
+    address += 4;\
+  }
  case 0xb4:
    // PUSH {Rlist}
    {
+     int offset = 0;
      u32 temp = myregs[13].I - 4 * cpuBitsSet[opcode & 0xff];
-     address = temp & 0xFFFFFFFC;
-	 
-	 //coto
-	 //returns: address pointer 
-	 //u32 address = PUSH_myregs(u32 opcode, u32 address,u32 val, u32 r)
-	 
-     address = PUSH_myregs(opcode,address,1, 0);
-     address = PUSH_myregs(opcode,address,2, 1);
-     address = PUSH_myregs(opcode,address,4, 2);
-     address = PUSH_myregs(opcode,address,8, 3);
-     address = PUSH_myregs(opcode,address,16, 4);
-     address = PUSH_myregs(opcode,address,32, 5);
-     address = PUSH_myregs(opcode,address,64, 6);
-     address = PUSH_myregs(opcode,address,128, 7);
+     u32 address = temp & 0xFFFFFFFC;
+     PUSH_myregs(1, 0);
+     PUSH_myregs(2, 1);
+     PUSH_myregs(4, 2);
+     PUSH_myregs(8, 3);
+     PUSH_myregs(16, 4);
+     PUSH_myregs(32, 5);
+     PUSH_myregs(64, 6);
+     PUSH_myregs(128, 7);
      myregs[13].I = temp;
    }
    break;
  case 0xb5:
    // PUSH {Rlist, LR}
    {
+     int offset = 0;
      u32 temp = myregs[13].I - 4 - 4 * cpuBitsSet[opcode & 0xff];
-     address = temp & 0xFFFFFFFC;
-     
-	 //coto
-	 //returns: address pointer 
-	 //u32 address = PUSH_myregs(u32 opcode, u32 address,u32 val, u32 r)
-	 
-	 address = PUSH_myregs(opcode,address,1, 0);
-     address = PUSH_myregs(opcode,address,2, 1);
-     address = PUSH_myregs(opcode,address,4, 2);
-     address = PUSH_myregs(opcode,address,8, 3);
-     address = PUSH_myregs(opcode,address,16, 4);
-     address = PUSH_myregs(opcode,address,32, 5);
-     address = PUSH_myregs(opcode,address,64, 6);
-     address = PUSH_myregs(opcode,address,128, 7);
-     address = PUSH_myregs(opcode,address,256, 14);
+     u32 address = temp & 0xFFFFFFFC;
+     PUSH_myregs(1, 0);
+     PUSH_myregs(2, 1);
+     PUSH_myregs(4, 2);
+     PUSH_myregs(8, 3);
+     PUSH_myregs(16, 4);
+     PUSH_myregs(32, 5);
+     PUSH_myregs(64, 6);
+     PUSH_myregs(128, 7);
+     PUSH_myregs(256, 14);
      myregs[13].I = temp;
    }
    break;
+#define POP_myregs(val, r) \
+  if(opcode & (val)) {\
+    myregs[(r)].I = CPUReadMemoryrealpu(address);\
+    offset = 1;\
+    address += 4;\
+  }
  case 0xbc:
    // POP {Rlist}
    {
-     address = myregs[13].I & 0xFFFFFFFC;
+     int offset = 0;
+     u32 address = myregs[13].I & 0xFFFFFFFC;
      u32 temp = myregs[13].I + 4*cpuBitsSet[opcode & 0xFF];
-     
-	 //coto
-	 //returns: address pointer 
-	 //u32 address = POP_myregs(u32 opcode, u32 address,u32 val, u32 r)
-	 
-	 address = POP_myregs(opcode,address,1, 0);
-     address = POP_myregs(opcode,address,2, 1);
-     address = POP_myregs(opcode,address,4, 2);
-     address = POP_myregs(opcode,address,8, 3);
-     address = POP_myregs(opcode,address,16, 4);
-     address = POP_myregs(opcode,address,32, 5);
-     address = POP_myregs(opcode,address,64, 6);
-     address = POP_myregs(opcode,address,128, 7);
+     POP_myregs(1, 0);
+     POP_myregs(2, 1);
+     POP_myregs(4, 2);
+     POP_myregs(8, 3);
+     POP_myregs(16, 4);
+     POP_myregs(32, 5);
+     POP_myregs(64, 6);
+     POP_myregs(128, 7);
      myregs[13].I = temp;
    }
    break;   
  case 0xbd:
    // POP {Rlist, PC}
    {
-     address = myregs[13].I & 0xFFFFFFFC;
+     int offset = 0;
+     u32 address = myregs[13].I & 0xFFFFFFFC;
      u32 temp = myregs[13].I + 4 + 4*cpuBitsSet[opcode & 0xFF];
-	 
-	 //coto
-	 //returns: address pointer 
-	 //u32 address = POP_myregs(u32 opcode, u32 address,u32 val, u32 r)
-	 
-     address = POP_myregs(opcode,address,1, 0);
-     address = POP_myregs(opcode,address,2, 1);
-     address = POP_myregs(opcode,address,4, 2);
-     address = POP_myregs(opcode,address,8, 3);
-     address = POP_myregs(opcode,address,16, 4);
-     address = POP_myregs(opcode,address,32, 5);
-     address = POP_myregs(opcode,address,64, 6);
-     address = POP_myregs(opcode,address,128, 7);
-     
-	 myregs[15].I = (CPUReadMemory(address) & 0xFFFFFFFE);
+     POP_myregs(1, 0);
+     POP_myregs(2, 1);
+     POP_myregs(4, 2);
+     POP_myregs(8, 3);
+     POP_myregs(16, 4);
+     POP_myregs(32, 5);
+     POP_myregs(64, 6);
+     POP_myregs(128, 7);
+     myregs[15].I = (CPUReadMemoryrealpu(address) & 0xFFFFFFFE);
      //armNextPC = myregs[15].I;
      myregs[15].I += 4;
      myregs[13].I = temp;
      ////THUMB_PREFETCH;
    }
-   break;
-   
+   break;      
+#define THUMB_STM_myregs(val,r,b) \
+  if(opcode & (val)) {\
+    CPUWriteMemorypu(address, myregs[(r)].I);\
+    if(!offset) {\
+      myregs[(b)].I = temp;\
+    }\
+    offset = 1;\
+    address += 4;\
+  }
  case 0xc0:
  case 0xc1:
  case 0xc2:
@@ -8374,25 +9533,26 @@ case 0x28:
    {
      // STM R0~7!, {Rlist}
      u8 myregsist = (opcode >> 8) & 7;
-     address = myregs[myregsist].I & 0xFFFFFFFC;
+     u32 address = myregs[myregsist].I & 0xFFFFFFFC;
      u32 temp = myregs[myregsist].I + 4*cpuBitsSet[opcode & 0xff];
-	 
-	 //coto
-	 //returns: address pointer 
-	 //u32 address = THUMB_STM_myregs(u32 opcode,u32 temp,u32 address,u32 val,u32 r,u32 b)
-	 
+     int offset = 0;
      // store
-     address = THUMB_STM_myregs(opcode,temp,address,1, 0, myregsist);
-     address = THUMB_STM_myregs(opcode,temp,address,2, 1, myregsist);
-     address = THUMB_STM_myregs(opcode,temp,address,4, 2, myregsist);
-     address = THUMB_STM_myregs(opcode,temp,address,8, 3, myregsist);
-     address = THUMB_STM_myregs(opcode,temp,address,16, 4, myregsist);
-     address = THUMB_STM_myregs(opcode,temp,address,32, 5, myregsist);
-     address = THUMB_STM_myregs(opcode,temp,address,64, 6, myregsist);
-     address = THUMB_STM_myregs(opcode,temp,address,128, 7, myregsist);
+     THUMB_STM_myregs(1, 0, myregsist);
+     THUMB_STM_myregs(2, 1, myregsist);
+     THUMB_STM_myregs(4, 2, myregsist);
+     THUMB_STM_myregs(8, 3, myregsist);
+     THUMB_STM_myregs(16, 4, myregsist);
+     THUMB_STM_myregs(32, 5, myregsist);
+     THUMB_STM_myregs(64, 6, myregsist);
+     THUMB_STM_myregs(128, 7, myregsist);
    }
    break;   
-
+#define THUMB_LDM_myregs(val,r) \
+  if(opcode & (val)) {\
+    myregs[(r)].I = CPUReadMemoryrealpu(address);\
+    offset = 1;\
+    address += 4;\
+  }
  case 0xc8:
  case 0xc9:
  case 0xca:
@@ -8406,23 +9566,18 @@ case 0x28:
      u8 myregsist = (opcode >> 8) & 7;
 	//iprintf("%x\n",myregs[myregsist].I);
 	//myregs[myregsist].I -= 4; //ichfly - 4 by me // idont think also ds need that
-     address = myregs[myregsist].I & 0xFFFFFFFC;
+     u32 address = myregs[myregsist].I & 0xFFFFFFFC;
      u32 temp = myregs[myregsist].I + 4*cpuBitsSet[opcode & 0xFF]; 
-     
-	 //coto
-	 //returns: address pointer
-	 //u32 THUMB_LDM_myregs(u32 opcode,u32 temp,u32 address,u32 val,u32 r)
-	 
-	 // load
-     address = THUMB_LDM_myregs(opcode,temp,address,1, 0);
-     address = THUMB_LDM_myregs(opcode,temp,address,2, 1);
-     address = THUMB_LDM_myregs(opcode,temp,address,4, 2);
-     address = THUMB_LDM_myregs(opcode,temp,address,8, 3);
-     address = THUMB_LDM_myregs(opcode,temp,address,16, 4);
-     address = THUMB_LDM_myregs(opcode,temp,address,32, 5);
-     address = THUMB_LDM_myregs(opcode,temp,address,64, 6);
-     address = THUMB_LDM_myregs(opcode,temp,address,128, 7);
-	 
+     int offset = 0;
+     // load
+     THUMB_LDM_myregs(1, 0);
+     THUMB_LDM_myregs(2, 1);
+     THUMB_LDM_myregs(4, 2);
+     THUMB_LDM_myregs(8, 3);
+     THUMB_LDM_myregs(16, 4);
+     THUMB_LDM_myregs(32, 5);
+     THUMB_LDM_myregs(64, 6);
+     THUMB_LDM_myregs(128, 7);
      if(!(opcode & (1<<myregsist)))
        myregs[myregsist].I = temp;
 	   //iprintf("%x\n",myregs[myregsist].I);
@@ -8679,33 +9834,34 @@ case 0x28:
 #endif
  case 0xbf:
  case 0xde:*/
-	
-default:
-	unknowndebugprint(myregs);
-break;
+ default:
 
+	 unknowndebugprint(myregs);
 }
-
 }
-
 void unknowndebugprint(reg_pair *myregs)
 {
 
 
-    iprintf("Undefined THUMB instruction %04x\n", *(u16*)(myregs[15].I - 6));
+    Log("Undefined THUMB instruction %04x\n", *(u16*)(myregs[15].I - 6));
 	 
 	/*u32 offset = myregs[15].I - 6;
 	if(offset > 0x02040000) offset = myregs[15].I - 6 - (u32)rom + 0x08000000;
 	disArm(offset - 2,disbuffer,DIS_VIEW_ADDRESS);
-	iprintf(disbuffer);
-	iprintf("\r\n");
+	Log(disbuffer);
+	Log("\r\n");
 	disArm(offset,disbuffer,DIS_VIEW_ADDRESS);
-	iprintf(disbuffer);
-	iprintf("\r\n");
+	Log(disbuffer);
+	Log("\r\n");
 	disArm(offset + 2,disbuffer,DIS_VIEW_ADDRESS);
-	iprintf(disbuffer);
-	iprintf("\r\n");*/
-	debugDump();
+	Log(disbuffer);
+	Log("\r\n");*/
 	REG_IME = IME_DISABLE;
+	debugDump();
 	while(1);
 }
+
+
+
+
+

@@ -68,12 +68,15 @@ bool mirroringEnable = false;
 
 u8 *bios = NULL; //calloc
 u8 *rom = NULL; //calc
-
 /*static u8 *internalRAM = (u8*)0x03000000; 
 static u8 *workRAM = (u8*)0x02000000;
 static u8 *paletteRAM = (u8*)0x05000000;
 static u8 *vram = (u8*)0x06000000;
 static u8 *oam = (u8*)0x07000000;*/
+u8 ioMem[0x400];
+
+u16 DISPSTAT = 0x0000;
+u16 VCOUNT   = 0x0000;
 u16 BG0CNT   = 0x0000;
 u16 BG1CNT   = 0x0000;
 u16 BG2CNT   = 0x0000;
@@ -112,120 +115,39 @@ u16 MOSAIC   = 0x0000;
 u16 BLDMOD   = 0x0000;
 u16 COLEV    = 0x0000;
 u16 COLY     = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM2SAD_L = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM2SAD_H = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM2DAD_L = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM2DAD_H = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM2CNT_L = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM2CNT_H = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM3SAD_L = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM3SAD_H = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM3DAD_L = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM3DAD_H = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM3CNT_L = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DM3CNT_H = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 TM0D     = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 TM0CNT   = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 TM1D     = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 TM1CNT   = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 TM2D     = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 TM2CNT   = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 TM3D     = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 TM3CNT   = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 P1       = 0xFFFF;
-
-__attribute__((section(".dtcm")))
-u16 IE       = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 IF       = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 IME      = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 DISPSTAT = 0x0000;
-
-__attribute__((section(".dtcm")))
-u16 VCOUNT   = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM0SAD_L = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM0SAD_H = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM0DAD_L = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM0DAD_H = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM0CNT_L = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM0CNT_H = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM1SAD_L = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM1SAD_H = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM1DAD_L = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM1DAD_H = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM1CNT_L = 0x0000;
-
-__attribute__((section(".dtcm")))
 u16 DM1CNT_H = 0x0000;
-
-//__attribute__((section(".dtcm")))
-u8 ioMem[0x400];
+u16 DM2SAD_L = 0x0000;
+u16 DM2SAD_H = 0x0000;
+u16 DM2DAD_L = 0x0000;
+u16 DM2DAD_H = 0x0000;
+u16 DM2CNT_L = 0x0000;
+u16 DM2CNT_H = 0x0000;
+u16 DM3SAD_L = 0x0000;
+u16 DM3SAD_H = 0x0000;
+u16 DM3DAD_L = 0x0000;
+u16 DM3DAD_H = 0x0000;
+u16 DM3CNT_L = 0x0000;
+u16 DM3CNT_H = 0x0000;
+u16 TM0D     = 0x0000;
+u16 TM0CNT   = 0x0000;
+u16 TM1D     = 0x0000;
+u16 TM1CNT   = 0x0000;
+u16 TM2D     = 0x0000;
+u16 TM2CNT   = 0x0000;
+u16 TM3D     = 0x0000;
+u16 TM3CNT   = 0x0000;
+u16 P1       = 0xFFFF;
+u16 IE       = 0x0000;
+u16 IF       = 0x0000;
+u16 IME      = 0x0000;

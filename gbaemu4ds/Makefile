@@ -20,7 +20,7 @@ all: $(TARGET).nds
 
 #---------------------------------------------------------------------------------
 $(TARGET).nds	:	arm7/$(TARGET).elf arm9/arm9.elf
-	ndstool	-c $(TARGET).nds -7 arm7/$(TARGET).elf -9 arm9/arm9.elf	-e9  0x02100000
+	ndstool	-c $(TARGET).nds -7 arm7/$(TARGET).elf -9 arm9/arm9.elf
 
 #---------------------------------------------------------------------------------
 arm7/$(TARGET).elf:
