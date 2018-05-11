@@ -525,7 +525,7 @@ REG_IPC_FIFO_TX = 0x4444444;
 	REG_IME = IME_ENABLE;
 	gbaMode2();
 #ifndef capture_and_pars
-	iprintf("jump to (%08X)\n\r",rom);
+	iprintf("jump to (%08X):%08X %08X ",rom,*rom,*(rom+1));
 #endif
 
 	//iprintf("\x1b[2J"); //reset (not working huh)

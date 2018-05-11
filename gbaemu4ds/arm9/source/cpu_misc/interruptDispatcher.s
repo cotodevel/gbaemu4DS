@@ -22,10 +22,11 @@
 
 
 ---------------------------------------------------------------------------------*/
+.section	.itcm,"ax",%progbits
+.align 4
+.arm
 
 #include "../ichflysettings.h"
-
-.section .itcm,"ax",%progbits
 .extern	irqTable
 
 __sp_undef	=	__dtcm_top - 0x100;	@ichfly @ 1.792 Byte

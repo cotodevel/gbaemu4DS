@@ -1,16 +1,11 @@
+.section	.itcm,"ax",%progbits
+.align 4
+.arm
+
+.equ REG_BASE,	0x04000000
+.equ REG_IME,	0x04000208
 
 #include "../ichflysettings.h"
-
-
-
-	.section	.itcm,"ax",%progbits
-
-	.equ REG_BASE,	0x04000000
-	.equ REG_IME,	0x04000208
-
-	.align 4
-	.code 32
-	.arm
 
 __sp_undef	=	__dtcm_top - 0x100;	@ichfly @ 1.792 Byte
 __sp_svc	=	__sp_undef - 0x700;	@ichfly @ 4.096 Byte
@@ -256,6 +251,7 @@ nop
 .global SPtoloadswi
 SPtoloadswi:
 	.word __sp_svc
+
 inter_swi:
 
 
