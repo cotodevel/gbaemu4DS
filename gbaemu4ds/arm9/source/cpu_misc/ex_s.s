@@ -5,6 +5,7 @@
 .equ REG_BASE,	0x04000000
 .equ REG_IME,	0x04000208
 
+
 #include "../ichflysettings.h"
 
 __sp_undef	=	__dtcm_top - 0x100;	@ichfly @ 1.792 Byte
@@ -251,10 +252,8 @@ nop
 .global SPtoloadswi
 SPtoloadswi:
 	.word __sp_svc
-
+	
 inter_swi:
-
-
 	@ change the PU to nds mode
 	ldr	SP,=0x36333333	@ see cpumg.cpp for meanings protections
 	mcr	p15, 0, SP, c5, c0, 2
@@ -302,43 +301,32 @@ inter_fetch: @ break function todo
 
 
 
-
-
 inter_undefined:
+@change the PU to nds mode
+	push {r0-r12,lr}
+	ldr	r12, =exRegs
+	str sp, [r12,#(4*13)]
+	
+	ldr	SP,=0x36333333	
+	mcr	p15, 0, SP, c5, c0, 2	
+	
+	@ restore nds undef stack context
+	ldr	sp, =__sp_undef
+	ldr sp, [sp]
 
-	@ change the PU to nds mode
-	ldr	SP,=0x36333333	@ see cpumg.cpp for meanings protections
-	mcr	p15, 0, SP, c5, c0, 2
-	ldr	SP, =exRegs
-	
-	str	lr, [SP, #(15 * 4)]	@ save r15 (lr is r15)
-	
-	@ save the registres 0->12
-	stmia	SP, {r0-r12}
-	
-	@ jump into the personal handler
-	ldr	r1, =exHandlerundifined
-	ldr	r1, [r1]
-	
-	
-	ldr	sp, =__sp_undef	@ use the new stack
-	
-	blx	r1 @ichfly change back if possible
-	
-	@ restore the registres 0->12
-	ldr	lr, =exRegs
-	ldmia	lr, {r0-r12}
-	
-	ldr	lr, [lr, #(15 * 4)] 
-	
-	subs    pc, lr, #4 @ichfly this is not working	
+	@coto : jump to handler,  make for arm9 is set for -marm ARM code (with interchange THUMB). If you switch back to -mthumb it will be slower & this will have to be BLX
+	BL exHandlerundifined
 
+	@save nds swi stack context
+	ldr	r1, =__sp_undef
+	str sp, [r1]	
 
-
-
-
-
-
+	@restore the GBA frame context (this LR is reusable, r13 no because we need to restore it and r15 is the on-exit frame address) 
+	ldr	sp, =exRegs
+	ldr sp, [sp,#(4*13)]
+	pop {r0-r12,lr}
+	
+	subs	pc, lr, #4
 
 
 
