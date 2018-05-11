@@ -24,11 +24,11 @@ __irq_flags	=	__dtcm_top - 0x08;
 __irq_vector	=	__dtcm_top - 0x04;
 
 __sp_undef	=	__dtcm_top - 0x200 	- 0xc;  
-__sp_dabt	=	__sp_undef - 0x1000 	- 0xc;
-__sp_svc	=	__sp_dabt - 0x400 	- 0xc;	
-__sp_swi	=	__sp_svc - 0x400 	- 0xc;	
-__sp_irq	=	__sp_swi  - 0x1000 	- 0xc; 	
-__sp_usr	=	__sp_irq - 0x100	- 0xc;
+__sp_dabt	=	__sp_undef - 0x1000;
+__sp_svc	=	__sp_dabt - 0x400;	
+__sp_swi	=	__sp_svc - 0x400;	
+__sp_irq	=	__sp_swi - 0x1000; 	
+__sp_usr	=	__sp_irq - 0x100;
 
 SECTIONS
 {
