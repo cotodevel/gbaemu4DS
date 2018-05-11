@@ -5,9 +5,6 @@
 	.align 4
 	.code 32
 	.arm
-	
-
-__sp_undef	=	__dtcm_top - 0x100;	@ichfly @ 1.792 Byte
 
 
 	.global readbankedsp

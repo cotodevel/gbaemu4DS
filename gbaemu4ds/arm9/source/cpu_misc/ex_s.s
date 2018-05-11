@@ -12,20 +12,6 @@
 	.code 32
 	.arm
 
-
-
-@__sp_svc	=	__dtcm_top - 0x100;   @ichfly old
-@__sp_irq	=	__sp_svc - 0x100;
-@__sp_usr	=	__sp_irq - 0x100;
-@__sp_exc = __sp_usr - 0x100;
-
-@new stacks todo mix some stacks @ichfly also old
-@__sp_undef	=	__dtcm_top - 0x100;	@ichfly @ 1.792 Byte
-@__sp_svc	=	__sp_undef - 0x700;	@ichfly @ 2.048 Byte
-@__sp_data	=	__sp_svc   - 0x800; @ichfly @ 2.048 Byte
-@__sp_irq	=	__sp_data  - 0x800; @ichfly @ 2.048 Byte each
-
-@new stacks todo mix some stacks
 __sp_undef	=	__dtcm_top - 0x100;	@ichfly @ 1.792 Byte
 __sp_svc	=	__sp_undef - 0x700;	@ichfly @ 4.096 Byte
 __sp_irq	=	__sp_svc  - 0x1000; @ichfly @ 1.024 Byte each @also in interruptDispatcher.s
