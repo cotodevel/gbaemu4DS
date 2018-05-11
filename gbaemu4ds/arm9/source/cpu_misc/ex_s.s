@@ -393,14 +393,14 @@ itisARM:
 
 	ldr r0, [LR, #-0x8]
 	ldr	sp, =__sp_undef	@ use the new stack
-	BL emuInstrARM 	@ is emuInstrARM(u32 opcode, s32 *R)
+	BL emuInstrARM 	@ is emuInstrARM(u32 opcode, u32 *R)
 	B exitdirectcpu
 itisTHUMB:
 	ldrh r0, [LR,#-0x8]
 	sub LR, #0x2
 	str LR, [r1, #15*4]
 	ldr	sp, =__sp_undef	@ use the new stack
-	BL emuInstrTHUMB @ is emuInstrTHUMB(u16 opcode, s32 *R)
+	BL emuInstrTHUMB @ is emuInstrTHUMB(u16 opcode, u32 *R)
 exitdirectcpu:
 #else
 
@@ -506,4 +506,5 @@ exRegs:
 	.word	0
 		
 	.pool
-	.end
+.end
+	

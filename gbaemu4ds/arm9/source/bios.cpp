@@ -37,8 +37,6 @@
 #include "Globals.h"
 #include "Util.h"
 
-extern s32  __attribute__((section(".dtcm"))) exRegs[]; //automatisierung
-
 
 #define log(...) iprintf(__VA_ARGS__)
 

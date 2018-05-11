@@ -175,8 +175,8 @@ extern u8 VCountdoit[263]; //jump in or out
 extern "C"{
 #endif
 
-extern void emuInstrARM(u32 opcode, s32 *R);
-extern void emuInstrTHUMB(u16 opcode, s32 *R);
+extern void emuInstrARM(u32 opcode, u32 *R);
+extern void emuInstrTHUMB(u16 opcode, u32 *R);
 
 extern void unkommeopcode(u32 opcode, reg_pair *myregs);
 extern void unknowndebugprint(reg_pair *myregs);
@@ -233,6 +233,8 @@ extern bool CPUIsZipFile(const char *);
 extern void cpuProfil(profile_segment *seg);
 extern void cpuEnableProfiling(int hz);
 #endif
+
+extern void BIOScall(int op,  u32 *R);
 
 #ifdef __cplusplus
 }

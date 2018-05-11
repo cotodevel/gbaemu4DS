@@ -22,7 +22,6 @@
 #include <stdarg.h>
 
 
-void BIOScall(int op,  s32 *R);
 
 extern "C" void cpu_SetCP15Cnt(u32 v);
 extern "C" u32 cpu_GetCP15Cnt();
@@ -102,8 +101,6 @@ extern "C" u32 savedlr;
 //#define DEV_VERSION
 
 
-extern bool disableMessage;
-
 
 
 void gbaExceptionHdl();
@@ -160,6 +157,7 @@ u16 gbaIME = 0;
 u16 gbaDISPCNT = 0;
 u16 gbaBGxCNT[4] = {0, 0, 0, 0};
 
+bool disableMessage = false;
 
 char disbuffer[0x2000];
 
@@ -170,12 +168,6 @@ int lastdebugsize = 6;
 #endif
 
 //extern "C" void exMain(); 
-
-extern void __attribute__((section(".dtcm"))) (*exHandler)();
-extern void __attribute__((section(".dtcm"))) (*exHandlerswi)();
-extern void __attribute__((section(".dtcm"))) (*exHandlerundifined)();
-extern s32  __attribute__((section(".dtcm"))) exRegs[];
-extern s32  __attribute__((section(".dtcm"))) BIOSDBG_SPSR;
 
 //#define BIOSDBG_CP15 *((volatile u32*)0x027FFD8C)
 //#define BIOSDBG_SPSR *((volatile u32*)0x027FFD90)
@@ -273,8 +265,6 @@ void exInit(void (*customHdl)())
 	exHandler = customHdl;
 }
 
-void emuInstrARM(u32 instr, s32 *regs);
-void emuInstrTHUMB(u16 instr, s32 *regs);
 
 #define B8(h,g,f,e,d,c,b,a) ((a)|((b)<<1)|((c)<<2)|((d)<<3)|((e)<<4)|((f)<<5)|((g)<<6)|((h)<<7))
 
@@ -401,7 +391,7 @@ if(lastdebugcurrent == lastdebugsize)lastdebugcurrent = 0;
 }
 
 __attribute__((section(".itcm")))
-void BIOScall(int op,  s32 *R)
+void BIOScall(int op,  u32 *R)
 {
 	int comment = op & 0x003F;
 	
@@ -410,7 +400,7 @@ void BIOScall(int op,  s32 *R)
 		BIOS_SoftReset();
 		break;
 	  case 0x01:
-		BIOS_RegisterRamReset(exRegs[0]);
+		BIOS_RegisterRamReset(R[0]);
 		break;
 	  case 0x02:
 #ifdef DEV_VERSION

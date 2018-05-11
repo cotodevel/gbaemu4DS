@@ -21,3 +21,8 @@ patcher:
 str oldValue
 0x1DC0DE
 decrypter
+
+
+coto:
+
+anothercpu.arm.c_smb3works_butmode0bugged breaks mode0 backgrounds. Perhaps some read/writes are wrongly truncated or ignored, thing is, this cpu fixes smb3 (sma4)

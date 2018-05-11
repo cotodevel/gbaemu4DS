@@ -37,7 +37,7 @@ u32 readbankedlr(u32 CPSR);
 void cpupausemodeexit();
 void cpupausemode();
 void debugDump();
-
+extern bool disableMessage;
 void ichflyswiHalt();
 void ichflyswiWaitForVBlank();
 void ichflyswiIntrWait(u32 i,u32 c);
@@ -46,6 +46,12 @@ extern void frameasyncsync(void);
 extern void VblankHandler();
 extern void frameasyncsync();
 extern void pausemenue();
+
+extern __attribute__((section(".dtcm")))	void (*exHandler)();
+extern __attribute__((section(".dtcm")))	void (*exHandlerswi)();
+extern __attribute__((section(".dtcm")))	void (*exHandlerundifined)();
+extern __attribute__((section(".dtcm")))	u32  exRegs[];
+extern __attribute__((section(".dtcm")))	u32 BIOSDBG_SPSR;
 
 #ifdef __cplusplus
 }

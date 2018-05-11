@@ -22,10 +22,12 @@
 #ifndef FILE_BROWSE_H
 #define FILE_BROWSE_H
 
+#ifdef __cplusplus
+
 #include <string>
+extern void browseForFile (const std::string& extension);
 
-void browseForFile (const std::string& extension);
-
+#endif
 
 
 #endif //FILE_BROWSE_H
