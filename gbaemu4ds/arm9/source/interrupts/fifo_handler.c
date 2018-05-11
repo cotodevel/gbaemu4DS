@@ -35,7 +35,7 @@ recdir++;
 recdel++;
 #endif
 		//counttrans++;
-		//iprintf("SPtoload %x sptemp %x\r\n",SPtoload,SPtemp);
+		//iprintf("spirq %x sptemp %x\r\n",spirq,SPtemp);
 		int i = 0;
 		u32 src = REG_IPC_FIFO_RX;
 #ifdef unsecamr7com
@@ -148,7 +148,7 @@ recdir++;
 recdel++;
 #endif
 		//counttrans++;
-		//iprintf("SPtoload %x sptemp %x\r\n",SPtoload,SPtemp);
+		//iprintf("spirq %x sptemp %x\r\n",spirq,SPtemp);
 		int i = 0;
 		u32* src = (u32*)REG_IPC_FIFO_RX;
 		if(src < (u32*)0x10000000)		
@@ -211,7 +211,7 @@ void arm7dmareqandcheat()
 #endif
 	while(!(REG_IPC_FIFO_CR & IPC_FIFO_RECV_EMPTY)) //handel all cmds
 	{
-		//iprintf("SPtoload %x sptemp %x\r\n",SPtoload,SPtemp);
+		//iprintf("spirq %x sptemp %x\r\n",spirq,SPtemp);
 		int i = 0;
 		u32* src = (u32*)REG_IPC_FIFO_RX;
 		//iprintf("i %08X\r\n",src);
@@ -258,7 +258,7 @@ void arm7dmareqandcheat()
 #endif
 	while(!(REG_IPC_FIFO_CR & IPC_FIFO_RECV_EMPTY)) //handel all cmds
 	{
-		//iprintf("SPtoload %x sptemp %x\r\n",SPtoload,SPtemp);
+		//iprintf("spirq %x sptemp %x\r\n",spirq,SPtemp);
 		int i = 0;
 		u32 src = REG_IPC_FIFO_RX;
 		//iprintf("i %08X\r\n",src);

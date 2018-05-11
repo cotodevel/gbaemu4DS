@@ -273,7 +273,7 @@ wait_irq:
 	pop {r0-r3}
 	
 	sub sp,sp,#0x58
-	ldr	r12, =SPtoloadswi	@save old stack
+	ldr	r12, =spsvc	@save old stack
 	str sp, [r12]
 	add sp,sp,#0x58
 	

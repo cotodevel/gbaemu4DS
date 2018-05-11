@@ -106,7 +106,7 @@ extern "C" u32 savedlr;
 void gbaExceptionHdl();
 
 
-extern "C" int SPtoload;
+extern "C" int spirq;
 extern "C" int SPtemp;
 
 
@@ -189,7 +189,7 @@ void debugDump()
 		Log("R%d=%X ", i, exRegs[i]);
 	} 
 	Log("\n");
-	Log("sup %X %X\n",SPtoload,SPtemp);
+	Log("sup %X %X\n",spirq,SPtemp);
 
 	/*if((exRegs[13] &0xFF000000) != 0x3000000)
 	{

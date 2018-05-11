@@ -8,25 +8,21 @@
 
 #include "../ichflysettings.h"
 
-__sp_undef	=	__dtcm_top - 0x100;	@ichfly @ 1.792 Byte
-__sp_svc	=	__sp_undef - 0x700;	@ichfly @ 4.096 Byte
-__sp_irq	=	__sp_svc  - 0x1000; @ichfly @ 1.024 Byte each @also in interruptDispatcher.s
-
 @========== Exception code ====================
 	
 	.section	.vectors,"ax",%progbits
 	
-		.global irqhandler2
+.global irqhandler2
 irqhandler2:
-b	inter_Reset + 0x1FF8000
-b	inter_undefined + 0x1FF8000
-b	inter_swi + 0x1FF8000
-b	inter_fetch + 0x1FF8000
-b	inter_data + 0x1FF8000
-b	inter_res + 0x1FF8000
-b	inter_irq + 0x1FF8000
-b	inter_fast + 0x1FF8000
-b	inter_res2 + 0x1FF8000
+b	inter_Reset + 0x01FF8000
+b	inter_undefined + 0x01FF8000
+b	inter_swi + 0x01FF8000
+b	inter_fetch + 0x01FF8000
+b	inter_data + 0x01FF8000
+b	inter_res + 0x01FF8000
+b	inter_irq + 0x01FF8000
+b	inter_fast + 0x01FF8000
+b	inter_res2 + 0x01FF8000
 
 somethingfailed:
 
@@ -53,8 +49,8 @@ savedlr:
 
 _exMain_tmpPuplain:
 	.word 0
-.global SPtoload
-SPtoload:
+.global spirq
+spirq:
 	.word __sp_irq
 	
 .global SPtemp
@@ -130,10 +126,10 @@ thisi3:
 inter_irq:
 
 	str sp,[pc, #-0xC] @ichfly sizechange
-	ldr sp,=SPtoload
+	ldr sp,=spirq
 	ldr sp,[sp]
 	STMDB SP!, {R0-R4,R12,LR}
-	ldr r0,=SPtoload
+	ldr r0,=spirq
 	sub r1,sp,#0x3E4@ ichfly irq stack size 0x400
 	str r1,[r0]
 
@@ -249,8 +245,8 @@ nop
 #endif
 
 
-.global SPtoloadswi
-SPtoloadswi:
+.global spsvc
+spsvc:
 	.word __sp_svc
 	
 inter_swi:
@@ -269,13 +265,13 @@ inter_swi:
 	ldr	r1, [r1]
 	
 	
-	ldr	sp, =SPtoloadswi	@ use the new stack
+	ldr	sp, =spsvc	@ use the new stack
 	ldr sp, [sp]
 	
 	blx	r1 @ichfly change back if possible
 	
 	
-	ldr	r1, =SPtoloadswi	@save old stack
+	ldr	r1, =spsvc	@save old stack
 	str sp, [r1]
 	
 	@ restore the registres 0->12

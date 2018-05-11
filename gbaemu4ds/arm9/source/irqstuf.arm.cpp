@@ -238,7 +238,7 @@ u8 VCountdstogba[263]; //(LY)      (0..262)
 u8 VCountdoit[263]; //jump in or out
 #endif
 
-extern "C" int SPtoload;
+extern "C" int spirq;
 extern "C" int SPtemp;
 
 #ifdef skipper
