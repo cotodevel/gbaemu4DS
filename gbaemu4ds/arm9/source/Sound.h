@@ -58,14 +58,13 @@ void soundShutdown();
 bool soundInit();
 void soundPause();
 void soundResume();
-void soundEnable(int);
-void soundDisable(int);
+void soundEnableGBA(int);
+void soundDisableGBA(int);
 int  soundGetEnable();
 void soundReset();
 void soundSaveGame(gzFile file);
 void soundReadGame(gzFile file, int);
 void soundEvent(u32, u8);
-void soundEvent(u32, u16);
 void soundTimerOverflow(int);
 void soundSetQuality(int);
 

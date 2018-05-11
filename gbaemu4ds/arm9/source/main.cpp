@@ -6,7 +6,7 @@
 #include <nds.h>
 #include <stdio.h>
 
-#include "../../gloabal/cpuglobal.h"
+#include "../../common/cpuglobal.h"
 
 #include <filesystem.h>
 #include "GBA.h"
@@ -31,11 +31,6 @@
 #include "arm7sound.h"
 
 #include "main.h"
-
-#define UPDATE_REG(address, value)\
-  {\
-    WRITE16LE(((u16 *)&ioMem[address]),value);\
-  }\
 
 char biosPath[MAXPATHLEN * 2];
 
@@ -77,6 +72,7 @@ typedef struct
 #include <nds/arm9/sassert.h>
 #include <stdarg.h>
 #include <string.h>
+#include "fifo_handler.h"
 
 u8 arm7exchangefild[0x100];
 
@@ -144,15 +140,6 @@ extern "C" u32 pu_Enable();
 
 
 
-
-
-
-#define READ16LE(x) \
-  swap16(*((u16 *)(x)))
-
-
-
-
 extern int frameskip;
 
 extern int framewtf;
@@ -210,7 +197,7 @@ int main( int argc, char **argv) {
 	irqEnable(IRQ_HBLANK);
 #endif
 #endif
-	__irqSet(IRQ_FIFO_NOT_EMPTY,arm7dmareq,irqTable); //todo async
+	__irqSet(IRQ_FIFO_NOT_EMPTY,HandleFifo,irqTable); //todo async
 	irqEnable(IRQ_FIFO_NOT_EMPTY);
 
 
@@ -223,7 +210,7 @@ int main( int argc, char **argv) {
 	//consoleDemoInitsubsc();
 	//iprintf("gbaemu4DS for r4i gold (3DS) (r4ids.cn) by ichfly\nBuildday" __DATE__);
 	//consoleDemoInit();
-	//soundEnable(); //sound finaly
+	//soundEnableGBA(); //sound finaly
 	//fifoSetDatamsgHandler(FIFO_USER_02, arm7debugMsgHandler, 0);
 
 

@@ -48,8 +48,17 @@ extern bool cheatsLoadCheatList(const char *file);
 extern void cheatsWriteMemory(u32, u32);
 extern void cheatsWriteHalfWord(u32, u16);
 extern void cheatsWriteByte(u32, u8);
-//extern int cheatsCheckKeys(u32,u32);
-int cheatsCheckKeys();
 extern int cheatsNumber;
 extern struct CheatsData cheatsList[100];
 #endif // GBA_CHEATS_H
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+extern int cheatsCheckKeys();
+
+#ifdef __cplusplus
+}
+#endif

@@ -38,11 +38,14 @@ void cpupausemodeexit();
 void cpupausemode();
 void debugDump();
 
-
 void ichflyswiHalt();
 void ichflyswiWaitForVBlank();
 void ichflyswiIntrWait(u32 i,u32 c);
 
+extern void frameasyncsync(void);
+extern void VblankHandler();
+extern void frameasyncsync();
+extern void pausemenue();
 
 #ifdef __cplusplus
 }

@@ -21,7 +21,6 @@
 #include <nds/arm9/sassert.h>
 #include <stdarg.h>
 
-void VblankHandler();
 
 void BIOScall(int op,  s32 *R);
 

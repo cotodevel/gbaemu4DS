@@ -1,7 +1,7 @@
 #include <nds.h>
 #include <nds/arm7/audio.h>
 
-#include "../../gloabal/cpuglobal.h"
+#include "../../common/cpuglobal.h"
 
 u16 callline = 0xFFFF;
 

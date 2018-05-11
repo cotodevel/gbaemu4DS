@@ -41,7 +41,6 @@
 #include <stdio.h>
 
 extern "C" void getandpatchmap(int offsetgba,int offsetthisfile);
-void arm7dmareqandcheat();
 
 #include <filesystem.h>
 #include "GBA.h"
@@ -67,6 +66,7 @@ void arm7dmareqandcheat();
 #include "arm7sound.h"
 
 #include "main.h"
+#include "interrupts/fifo_handler.h"
 
 
 #include <unistd.h>    // for sbrk()

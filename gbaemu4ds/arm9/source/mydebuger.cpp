@@ -1,4 +1,4 @@
-#include "../../gloabal/cpuglobal.h"
+#include "../../common/cpuglobal.h"
 
 
 #include <nds.h>

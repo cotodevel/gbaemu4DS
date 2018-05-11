@@ -21,6 +21,7 @@
 #define VBA_CHEATSEARCH_H
 
 #include "System.h"
+#include "Cheats.h"
 
 struct CheatSearchBlock {
   int size;
@@ -32,7 +33,7 @@ struct CheatSearchBlock {
 
 struct CheatSearchData {
   int count;
-  CheatSearchBlock *blocks;
+  struct CheatSearchBlock *blocks;
 };
 
 enum {
@@ -59,15 +60,17 @@ enum {
 #define IS_BIT_SET(bits, off) \
   (bits)[(off) >> 3] & (1 << ((off) & 7))
 
-extern CheatSearchData cheatSearchData;
-extern void cheatSearchCleanup(CheatSearchData *cs);
-extern void cheatSearchStart(const CheatSearchData *cs);
-extern void cheatSearch(const CheatSearchData *cs, int compare, int size, 
+extern struct CheatSearchData cheatSearchData;
+extern void cheatSearchCleanup(struct CheatSearchData *cs);
+extern void cheatSearchStart(const struct CheatSearchData *cs);
+extern void cheatSearch(const struct CheatSearchData *cs, int compare, int size, 
                         bool isSigned);
-extern void cheatSearchValue(const CheatSearchData *cs, int compare, int size, 
+extern void cheatSearchValue(const struct CheatSearchData *cs, int compare, int size, 
                              bool isSigned, u32 value);
-extern int cheatSearchGetCount(const CheatSearchData *cs, int size);
-extern void cheatSearchUpdateValues(const CheatSearchData *cs);
+extern int cheatSearchGetCount(const struct CheatSearchData *cs, int size);
+extern void cheatSearchUpdateValues(const struct CheatSearchData *cs);
 extern s32 cheatSearchSignedRead(u8 *data, int off, int size);
 extern u32 cheatSearchRead(u8 *data, int off, int size);
+
 #endif
+

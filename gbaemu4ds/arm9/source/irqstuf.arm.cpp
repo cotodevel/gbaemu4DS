@@ -1,7 +1,7 @@
 #include <nds.h>
 #include <stdio.h>
 
-#include "../../gloabal/cpuglobal.h"
+#include "../../common/cpuglobal.h"
 #include <filesystem.h>
 #include "GBA.h"
 #include "Sound.h"
@@ -18,20 +18,12 @@
 #include "mydebuger.h"
 
 #include "ichflysettings.h"
-
-#include <nds.h>
-
 #include "arm7sound.h"
-
+#include "interrupts/fifo_handler.h"
 #include "main.h"
 
-#define UPDATE_REG(address, value)\
-  {\
-    WRITE16LE(((u16 *)&ioMem[address]),value);\
-  }\
 
 extern char savePath[MAXPATHLEN * 2];
-
 extern char szFile[MAXPATHLEN * 2];
 
 #include <stdio.h>
@@ -115,8 +107,6 @@ int ignorenextY = 0;
 
 
 
-#define READ16LE(x) \
-  swap16(*((u16 *)(x)))
 
 
 /*
@@ -496,23 +486,22 @@ if(lastdebugcurrent == lastdebugsize)lastdebugcurrent = 0;
 		framewtf = 0;
 		if((DISPCNT & 7) < 3)
 		{
-			extern void arm7dmareq();
-			arm7dmareq();
+			HandleFifo();
 			dmaCopyWords(3,(void*)0x06010000,(void*)0x06400000,0x2000);
-			arm7dmareq();
+			HandleFifo();
 			dmaCopyWords(3,(void*)0x06012000,(void*)0x06402000,0x2000);
-			arm7dmareq();
+			HandleFifo();
 			dmaCopyWords(3,(void*)0x06014000,(void*)0x06404000,0x2000);
-			arm7dmareq();
+			HandleFifo();
 			dmaCopyWords(3,(void*)0x06016000,(void*)0x06406000,0x2000);
 		}
 		else
 		{
-			arm7dmareq();
+			HandleFifo();
 			dmaCopyWords(3,(void*)0x06014000,(void*)0x06404000,0x2000);
-			arm7dmareq();
+			HandleFifo();
 			dmaCopyWords(3,(void*)0x06016000,(void*)0x06406000,0x2000);
-			arm7dmareq();
+			HandleFifo();
 
 			if((DISPCNT & 7) == 3) //BG Mode 3 - 240x160 pixels, 32768 colors
 			{

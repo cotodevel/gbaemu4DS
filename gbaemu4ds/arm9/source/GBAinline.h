@@ -61,11 +61,6 @@ extern int cpuTotalTicks;
 void Logsd(const char *defaultMsg,...);
 
 
-#define UPDATE_REG(address, value)\
-  {\
-    WRITE16LE(((u16 *)&ioMem[address]),value);\
-  }\
-
 
 #define CPUReadByteQuick(addr) \
   map[(addr)>>24].address[(addr) & map[(addr)>>24].mask]
